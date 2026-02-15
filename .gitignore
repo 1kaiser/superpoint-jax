@@ -172,3 +172,15 @@ cython_debug/
 
 # Image files
 *.jpg
+
+# Node.js
+node_modules/
+
+# Test artifacts
+*.npy
+*.npz
+*.zip
+demo/real_frames/
+demo/test_indices.json
+demo/js_keypoints.json
+demo/image_sacre_coeur_gray.png
