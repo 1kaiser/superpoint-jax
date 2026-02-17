@@ -51,14 +51,20 @@ Using consecutive frames (`frame_0000.png`, `frame_0001.png`):
 ### 3.3 Frame Gap Analysis
 We evaluated robustness against large viewpoint changes by matching frames with increasing temporal gaps (5, 10, 15, 20 frames).
 - **Gap 20**: Successfully matched across significant perspective shifts (26 matches).
-- **Visualization**: `jax-js/superglue_gap_analysis_3rows.png` shows matching quality at Gaps 5, 10, and 15 (Ref vs Ref+N).
-- `jax-js/superglue_experiment_2x2.png` demonstrates the degradation patterns across all gaps.
+- **Visualization**:
+  ![Gap Analysis Stack](jax-js/superglue_gap_analysis_3rows.png)
+  
+  *matching quality at Gaps 5, 10, and 15 (Ref vs Ref+N)*
+
+- ![Experiment 2x2](jax-js/superglue_experiment_2x2.png)
+  *degradation patterns across all gaps*
 
 ### 3.4 Attention Visualization
 We provide deep insights into the GNN's decision-making by visualizing raw attention weights:
 - **Self-Attention**: Shows how the model attends to keypoints within the same image.
 - **Cross-Attention**: Shows how the model "looks" for corresponding points in the other image.
-- **Output**: `jax-js/attention_visualization_gap_05.png` displays these 4 attention quadrants.
+- **Output**:
+  ![Attention Visualization](jax-js/attention_visualization_gap_05.png)
 
 ## 4. Conclusion
 
