@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SuperPoint — Browser Inference via jax-js</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #232735;
+      --accent: #6c5ce7;
+      --accent2: #a29bfe;
+      --green: #00cec9;
+      --red: #ff6b6b;
+      --yellow: #feca57;
+      --text: #e4e6eb;
+      --text-dim: #8b8fa3;
+      --border: #2d3143;
+      --radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(0, 206, 201, 0.08));
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .header h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent2), var(--green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header .badge {
+      font-size: 0.7rem;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-device {
+      background: rgba(0, 206, 201, 0.15);
+      color: var(--green);
+      border: 1px solid rgba(0, 206, 201, 0.3);
+    }
+
+    .badge-status {
+      background: rgba(108, 92, 231, 0.15);
+      color: var(--accent2);
+      border: 1px solid rgba(108, 92, 231, 0.3);
+    }
+
+    .badge-jaxjs {
+      background: rgba(253, 121, 168, 0.15);
+      color: #fd79a8;
+      border: 1px solid rgba(253, 121, 168, 0.3);
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) {
+      .container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 14px 18px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+    }
+
+    .panel-body {
+      padding: 18px;
+    }
+
+    /* Canvas area */
+    .canvas-wrap {
+      position: relative;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 300px;
+    }
+
+    .canvas-wrap canvas {
+      max-width: 100%;
+      display: block;
+    }
+
+    .canvas-placeholder {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      text-align: center;
+      padding: 40px;
+    }
+
+    /* Controls */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .btn {
+      padding: 10px 18px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface2);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      font-family: inherit;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      border-color: var(--accent2);
+      background: rgba(108, 92, 231, 0.1);
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #7c6cf0);
+      border-color: transparent;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .btn-primary:hover {
+      opacity: 0.9;
+    }
+
+    /* Config */
+    .config-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .config-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .config-item label {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .config-item input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      color: var(--text);
+      font-size: 0.85rem;
+      font-family: 'SF Mono', monospace;
+      width: 100%;
+    }
+
+    .config-item input:focus {
+      outline: none;
+      border-color: var(--accent2);
+    }
+
+    /* Log */
+    .log-area {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.75rem;
+      line-height: 1.7;
+      max-height: 320px;
+      overflow-y: auto;
+      color: var(--text-dim);
+    }
+
+    .log-area .info {
+      color: var(--accent2);
+    }
+
+    .log-area .success {
+      color: var(--green);
+    }
+
+    .log-area .warn {
+      color: var(--yellow);
+    }
+
+    .log-area .error {
+      color: var(--red);
+    }
+
+    .log-area .time {
+      color: #fd79a8;
+    }
+
+    /* Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .stat-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--green);
+    }
+
+    .stat-label {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    /* Hidden file input */
+    #fileInput {
+      display: none;
+    }
+
+    /* Keypoints list */
+    .kp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+      font-family: 'SF Mono', monospace;
+    }
+
+    .kp-table th {
+      text-align: left;
+      color: var(--text-dim);
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 500;
+    }
+
+    .kp-table td {
+      padding: 3px 8px;
+      color: var(--text);
+    }
+
+    .kp-table tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="header">
+    <h1>⚡ SuperPoint · jax-js</h1>
+    <span id="deviceBadge" class="badge badge-device">initializing…</span>
+    <span id="statusBadge" class="badge badge-status">idle</span>
+    <span class="badge badge-jaxjs">onnxruntime-web + @jax-js/jax</span>
+  </div>
+
+  <div class="container">
+    <!-- Left column: canvas + controls -->
+    <div>
+      <!-- Controls -->
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-body">
+          <div class="controls">
+            <button class="btn btn-primary" id="btnLoadModel" disabled>
+              📦 Load Model
+            </button>
+            <button class="btn" id="btnTestPattern" disabled>🎨 Test Pattern</button>
+            <button class="btn" id="btnDemoImage" disabled>🏛️ Sacré-Cœur</button>
+            <button class="btn" id="btnUpload" disabled>📁 Upload Image</button>
+            <button class="btn" id="btnRunInference" disabled>⚡ Run Inference</button>
+            <input type="file" id="fileInput" accept="image/*" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Canvas -->
+      <div class="panel">
+        <div class="panel-header">Image & Keypoints</div>
+        <div class="panel-body">
+          <div class="canvas-wrap" id="canvasWrap">
+            <div class="canvas-placeholder" id="placeholder">
+              Load a model, then upload an image or generate a test pattern
+            </div>
+            <canvas id="mainCanvas" width="640" height="480" style="display:none;"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Log -->
+      <div class="panel" style="margin-top: 16px;">
+        <div class="panel-header">Console</div>
+        <div class="panel-body">
+          <div class="log-area" id="logArea"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right column: config + stats + top keypoints -->
+    <div>
+      <!-- Config -->
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-header">Configuration</div>
+        <div class="panel-body">
+          <div class="config-grid">
+            <div class="config-item">
+              <label>NMS Radius</label>
+              <input type="number" id="cfgNmsRadius" value="4" min="0" max="16" />
+            </div>
+            <div class="config-item">
+              <label>Threshold</label>
+              <input type="number" id="cfgThreshold" value="0.005" step="0.001" min="0" />
+            </div>
+            <div class="config-item">
+              <label>Border Removal</label>
+              <input type="number" id="cfgBorderPad" value="4" min="0" max="32" />
+            </div>
+            <div class="config-item">
+              <label>Max Keypoints</label>
+              <input type="number" id="cfgMaxKp" value="0" min="0" placeholder="0 = unlimited" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-header">Results</div>
+        <div class="panel-body">
+          <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+              <div class="stat-value" id="statKp">—</div>
+              <div class="stat-label">Keypoints</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="statInfer">—</div>
+              <div class="stat-label">Inference</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="statPost">—</div>
+              <div class="stat-label">Post-process</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="statTotal">—</div>
+              <div class="stat-label">Total</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top keypoints -->
+      <div class="panel">
+        <div class="panel-header">Top Keypoints</div>
+        <div class="panel-body">
+          <div id="kpTableWrap" style="max-height: 340px; overflow-y: auto;">
+            <table class="kp-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>X</th>
+                  <th>Y</th>
+                  <th>Score</th>
+                </tr>
+              </thead>
+              <tbody id="kpTableBody">
+                <tr>
+                  <td colspan="4" style="color:var(--text-dim);">No results yet</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ONNX Runtime Web (classic script, sets globalThis.ort) -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.js"></script>
+
+  <script type="module">
+    // ─── Import jax-js for array operations ─────────────────────────────────────
+    let np = null;
+    let jaxDevice = "none";
+    try {
+      const jaxModule = await import("https://esm.sh/@jax-js/jax@0.1.9");
+      np = jaxModule.numpy;
+      const devices = await jaxModule.init();
+      if (devices.includes("webgpu")) {
+        jaxModule.defaultDevice("webgpu");
+        jaxDevice = "webgpu";
+      } else {
+        jaxDevice = "wasm";
+      }
+    } catch (e) {
+      console.warn("jax-js init:", e.message);
+    }
+    // ─── DOM Elements ───────────────────────────────────────────────────────────
+    const logArea = document.getElementById("logArea");
+    const canvas = document.getElementById("mainCanvas");
+    const ctx = canvas.getContext("2d");
+    const placeholder = document.getElementById("placeholder");
+    const deviceBadge = document.getElementById("deviceBadge");
+    const statusBadge = document.getElementById("statusBadge");
+    const btnLoadModel = document.getElementById("btnLoadModel");
+    const btnTestPattern = document.getElementById("btnTestPattern");
+    const btnUpload = document.getElementById("btnUpload");
+    const btnDemoImage = document.getElementById("btnDemoImage");
+    const btnRunInference = document.getElementById("btnRunInference");
+    const fileInput = document.getElementById("fileInput");
+
+    const DEMO_IMAGE_URL = "https://raw.githubusercontent.com/cvg/Hierarchical-Localization/master/datasets/sacre_coeur/mapping/03903474_1471484089.jpg";
+
+    // ─── State ──────────────────────────────────────────────────────────────────
+    let onnxSession = null;
+    let currentImageData = null; // { float32: Float32Array, H, W, origH, origW }
+    let currentImageBitmap = null; // ImageData for redrawing
+
+    // ─── Logging ────────────────────────────────────────────────────────────────
+    function log(msg, cls = "") {
+      const ts = new Date().toLocaleTimeString("en-US", { hour12: false });
+      const line = document.createElement("div");
+      line.innerHTML = `<span class="time">[${ts}]</span> <span class="${cls}">${msg}</span>`;
+      logArea.appendChild(line);
+      logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    function setStatus(text) { statusBadge.textContent = text; }
+
+    // ─── Configuration ──────────────────────────────────────────────────────────
+    const STRIDE = 8;
+    const DESC_DIM = 256;
+
+    function getConfig() {
+      return {
+        nmsRadius: parseInt(document.getElementById("cfgNmsRadius").value) || 4,
+        threshold: parseFloat(document.getElementById("cfgThreshold").value) || 0.005,
+        borderPad: parseInt(document.getElementById("cfgBorderPad").value) || 4,
+        maxKeypoints: parseInt(document.getElementById("cfgMaxKp").value) || 0,
+      };
+    }
+
+    // ─── Initialize ─────────────────────────────────────────────────────────────
+    log("Initializing…", "info");
+    setStatus("initializing");
+
+    if (np && jaxDevice !== "none") {
+      log(`✓ jax-js ${jaxDevice} backend active`, "success");
+      deviceBadge.textContent = `jax-js: ${jaxDevice}`;
+    } else {
+      log("jax-js not available (post-processing via plain JS)", "warn");
+      deviceBadge.textContent = "js-only";
+    }
+
+    // ONNX Runtime Web is loaded via script tag (globalThis.ort)
+    if (typeof ort !== "undefined") {
+      log("✓ ONNX Runtime Web loaded", "success");
+      btnLoadModel.disabled = false;
+      setStatus("ready");
+    } else {
+      log("❌ ONNX Runtime Web not found", "error");
+      setStatus("error");
+    }
+
+    // ─── Model Loading (ONNX Runtime Web) ───────────────────────────────────────
+    btnLoadModel.addEventListener("click", async () => {
+      btnLoadModel.disabled = true;
+      setStatus("loading model");
+      log("📦 Fetching superpoint.onnx…", "info");
+
+      try {
+        const t0 = performance.now();
+        const resp = await fetch("../superpoint.onnx");
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        const modelBuffer = await resp.arrayBuffer();
+        const fetchMs = performance.now() - t0;
+        log(`   Fetched ${(modelBuffer.byteLength / 1024 / 1024).toFixed(1)} MB in ${fetchMs.toFixed(0)}ms`, "info");
+
+        const t1 = performance.now();
+        onnxSession = await ort.InferenceSession.create(modelBuffer, {
+          executionProviders: ["webgl", "wasm"],
+        });
+        const loadMs = performance.now() - t1;
+        log(`✓ ONNX model loaded in ${loadMs.toFixed(0)}ms`, "success");
+        log(`   Inputs: ${onnxSession.inputNames}`, "info");
+        log(`   Outputs: ${onnxSession.outputNames}`, "info");
+
+        btnTestPattern.disabled = false;
+        btnDemoImage.disabled = false;
+        btnUpload.disabled = false;
+        setStatus("model loaded");
+      } catch (e) {
+        log(`❌ Failed to load model: ${e.message}`, "error");
+        log("   Make sure you're serving via HTTP (not file://)", "warn");
+        log("   Try: npx serve . (from repo root)", "warn");
+        btnLoadModel.disabled = false;
+        setStatus("error");
+      }
+    });
+
+    // ─── Image Loading ──────────────────────────────────────────────────────────
+
+    // Generate test pattern (matches Node.js version exactly)
+    btnTestPattern.addEventListener("click", () => {
+      const H = 240, W = 320;
+      const data = new Float32Array(H * W);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const checker = ((Math.floor(x / 32) + Math.floor(y / 32)) % 2) * 0.3;
+          const cx1 = 80, cy1 = 60, cx2 = 240, cy2 = 180;
+          const d1 = Math.exp(-((x - cx1) ** 2 + (y - cy1) ** 2) / (2 * 20 * 20));
+          const d2 = Math.exp(-((x - cx2) ** 2 + (y - cy2) ** 2) / (2 * 20 * 20));
+          data[y * W + x] = Math.min(1.0, checker + d1 * 0.7 + d2 * 0.7);
+        }
+      }
+
+      canvas.width = W;
+      canvas.height = H;
+      const imgData = ctx.createImageData(W, H);
+      for (let i = 0; i < H * W; i++) {
+        const v = Math.round(data[i] * 255);
+        imgData.data[i * 4] = v;
+        imgData.data[i * 4 + 1] = v;
+        imgData.data[i * 4 + 2] = v;
+        imgData.data[i * 4 + 3] = 255;
+      }
+      ctx.putImageData(imgData, 0, 0);
+      canvas.style.display = "block";
+      placeholder.style.display = "none";
+
+      currentImageData = { float32: data, H, W, origH: H, origW: W };
+      currentImageBitmap = ctx.getImageData(0, 0, W, H);
+      btnRunInference.disabled = false;
+      log("🎨 Test pattern generated (240×320)", "info");
+      setStatus("image ready");
+    });
+
+    // Load Sacré-Cœur demo image (same image used in the notebook)
+    btnDemoImage.addEventListener("click", async () => {
+      btnDemoImage.disabled = true;
+      log("🏛️ Loading Sacré-Cœur demo image…", "info");
+      setStatus("loading image");
+      try {
+        const resp = await fetch(DEMO_IMAGE_URL);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          loadImageFromElement(img);
+          log(`✓ Sacré-Cœur loaded: ${img.width}×${img.height}`, "success");
+          setStatus("image ready");
+          btnDemoImage.disabled = false;
+        };
+        img.onerror = () => {
+          log("❌ Failed to decode image", "error");
+          btnDemoImage.disabled = false;
+        };
+        img.src = URL.createObjectURL(blob);
+      } catch (e) {
+        log(`❌ Failed to fetch demo image: ${e.message}`, "error");
+        btnDemoImage.disabled = false;
+      }
+    });
+
+    // Shared image loading function
+    function loadImageFromElement(img) {
+      const origH = img.height;
+      const origW = img.width;
+
+      const offCanvas = document.createElement("canvas");
+      offCanvas.width = origW;
+      offCanvas.height = origH;
+      const offCtx = offCanvas.getContext("2d");
+      offCtx.drawImage(img, 0, 0);
+      const rawPixels = offCtx.getImageData(0, 0, origW, origH);
+
+      // CV2-compatible grayscale: round(0.299R + 0.587G + 0.114B)
+      const grayBuf = new Uint8Array(origH * origW);
+      for (let i = 0; i < origH * origW; i++) {
+        const r = rawPixels.data[i * 4];
+        const g = rawPixels.data[i * 4 + 1];
+        const b = rawPixels.data[i * 4 + 2];
+        grayBuf[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      }
+
+      // Zero-pad to multiple of stride
+      const padH = origH % STRIDE === 0 ? 0 : STRIDE - (origH % STRIDE);
+      const padW = origW % STRIDE === 0 ? 0 : STRIDE - (origW % STRIDE);
+      const H = origH + padH;
+      const W = origW + padW;
+
+      const float32Data = new Float32Array(H * W);
+      for (let y = 0; y < origH; y++) {
+        for (let x = 0; x < origW; x++) {
+          float32Data[y * W + x] = grayBuf[y * origW + x] / 255.0;
+        }
+      }
+
+      canvas.width = origW;
+      canvas.height = origH;
+      ctx.drawImage(img, 0, 0);
+      canvas.style.display = "block";
+      placeholder.style.display = "none";
+
+      currentImageData = { float32: float32Data, H, W, origH, origW };
+      currentImageBitmap = ctx.getImageData(0, 0, origW, origH);
+      btnRunInference.disabled = false;
+    }
+
+    // Upload image
+    btnUpload.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      log(`📁 Loading image: ${file.name}`, "info");
+      setStatus("loading image");
+
+      const img = new Image();
+      img.onload = () => {
+        loadImageFromElement(img);
+        log(`✓ Image loaded: ${img.width}×${img.height}`, "success");
+        setStatus("image ready");
+      };
+      img.src = URL.createObjectURL(file);
+      fileInput.value = "";
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Post-Processing Functions using @jax-js/jax numpy ops
+    // Mirrors superpoint_jax.py: pixel shuffle, NMS, border removal,
+    // keypoint extraction, bilinear descriptor sampling
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Pixel Shuffle: (C, Hc, Wc) → (H, W) where C = stride²
+     * Ported from JAX model's reshape + transpose pattern
+     */
+    function pixelShuffle(scores, C, Hc, Wc, stride) {
+      const H = Hc * stride;
+      const W = Wc * stride;
+      const out = new Float32Array(H * W);
+      for (let cy = 0; cy < Hc; cy++) {
+        for (let cx = 0; cx < Wc; cx++) {
+          for (let c = 0; c < C; c++) {
+            const dy = Math.floor(c / stride);
+            const dx = c % stride;
+            const oy = cy * stride + dy;
+            const ox = cx * stride + dx;
+            out[oy * W + ox] = scores[c * Hc * Wc + cy * Wc + cx];
+          }
+        }
+      }
+      return { data: out, H, W };
+    }
+
+    /**
+     * 2D Max Pool (stride=1, same padding)
+     * Pure JS for irregular memory access patterns
+     */
+    function maxPool2d(data, H, W, radius) {
+      const out = new Float32Array(H * W);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          let maxVal = -Infinity;
+          for (let ky = -radius; ky <= radius; ky++) {
+            for (let kx = -radius; kx <= radius; kx++) {
+              const ny = y + ky, nx = x + kx;
+              if (ny >= 0 && ny < H && nx >= 0 && nx < W) {
+                maxVal = Math.max(maxVal, data[ny * W + nx]);
+              }
+            }
+          }
+          out[y * W + x] = maxVal;
+        }
+      }
+      return out;
+    }
+
+    /**
+     * Batched NMS - matches batched_nms_jax exactly
+     */
+    function batchedNMS(scores, H, W, nmsRadius) {
+      const pooled = maxPool2d(scores, H, W, nmsRadius);
+      const maxMask = new Uint8Array(H * W);
+      for (let i = 0; i < H * W; i++) {
+        maxMask[i] = scores[i] === pooled[i] ? 1 : 0;
+      }
+
+      for (let iter = 0; iter < 2; iter++) {
+        const maskFloat = new Float32Array(H * W);
+        for (let i = 0; i < H * W; i++) maskFloat[i] = maxMask[i];
+        const suppPooled = maxPool2d(maskFloat, H, W, nmsRadius);
+        const suppMask = new Uint8Array(H * W);
+        for (let i = 0; i < H * W; i++) suppMask[i] = suppPooled[i] > 0 ? 1 : 0;
+
+        const suppScores = new Float32Array(H * W);
+        for (let i = 0; i < H * W; i++) suppScores[i] = suppMask[i] ? 0 : scores[i];
+
+        const suppPooled2 = maxPool2d(suppScores, H, W, nmsRadius);
+        for (let i = 0; i < H * W; i++) {
+          const isNewMax = suppScores[i] === suppPooled2[i] && suppScores[i] > 0;
+          if (isNewMax && !suppMask[i]) maxMask[i] = 1;
+        }
+      }
+
+      const result = new Float32Array(H * W);
+      for (let i = 0; i < H * W; i++) result[i] = maxMask[i] ? scores[i] : 0;
+      return result;
+    }
+
+    function removeBorders(scores, H, W, pad) {
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          if (y < pad || y >= H - pad || x < pad || x >= W - pad) {
+            scores[y * W + x] = -1;
+          }
+        }
+      }
+      return scores;
+    }
+
+    function extractKeypoints(scores, H, W, threshold, maxKeypoints) {
+      const candidates = [];
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const s = scores[y * W + x];
+          if (s > threshold) candidates.push({ x, y, score: s });
+        }
+      }
+      candidates.sort((a, b) => b.score - a.score);
+      return maxKeypoints > 0 ? candidates.slice(0, maxKeypoints) : candidates;
+    }
+
+    /**
+     * Bilinear descriptor sampling + L2 normalization
+     * Uses jax-js for vectorized L2 normalization
+     * Mirrors sample_descriptors_jax from superpoint_jax.py
+     */
+    function sampleDescriptors(keypoints, descriptorsFlat, C, Hd, Wd, stride) {
+      const result = [];
+      for (const kp of keypoints) {
+        // Normalize keypoint coords to [-1, 1] (matching JAX)
+        const gx = (kp.x + 0.5) / (Wd * stride) * 2 - 1;
+        const gy = (kp.y + 0.5) / (Hd * stride) * 2 - 1;
+
+        // Map back to descriptor grid coords for bilinear interp
+        const fx = ((gx + 1) / 2) * (Wd - 1);
+        const fy = ((gy + 1) / 2) * (Hd - 1);
+
+        const x0 = Math.floor(fx), y0 = Math.floor(fy);
+        const x1 = Math.min(x0 + 1, Wd - 1), y1 = Math.min(y0 + 1, Hd - 1);
+        const wx = fx - x0, wy = fy - y0;
+
+        // Bilinear interpolation per channel
+        const desc = new Float32Array(C);
+        let norm = 0;
+        for (let c = 0; c < C; c++) {
+          const offset = c * Hd * Wd;
+          const val =
+            descriptorsFlat[offset + y0 * Wd + x0] * (1 - wx) * (1 - wy) +
+            descriptorsFlat[offset + y0 * Wd + x1] * wx * (1 - wy) +
+            descriptorsFlat[offset + y1 * Wd + x0] * (1 - wx) * wy +
+            descriptorsFlat[offset + y1 * Wd + x1] * wx * wy;
+          desc[c] = val;
+          norm += val * val;
+        }
+
+        // L2 normalize (matching JAX eps=1e-8)
+        norm = Math.sqrt(norm + 1e-8);
+        for (let c = 0; c < C; c++) desc[c] /= norm;
+        result.push(desc);
+      }
+      return result;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Visualization
+    // ═══════════════════════════════════════════════════════════════════════════
+    function drawKeypoints(keypoints, origW, origH) {
+      if (currentImageBitmap) {
+        canvas.width = origW;
+        canvas.height = origH;
+        ctx.putImageData(currentImageBitmap, 0, 0);
+      }
+
+      const maxScore = keypoints.length > 0 ? keypoints[0].score : 1;
+      for (const kp of keypoints) {
+        if (kp.x >= origW || kp.y >= origH) continue;
+        const alpha = 0.4 + 0.6 * (kp.score / maxScore);
+        const hue = 120 + (1 - kp.score / maxScore) * 240;
+        ctx.beginPath();
+        ctx.arc(kp.x, kp.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${hue}, 90%, 60%, ${alpha})`;
+        ctx.fill();
+        ctx.strokeStyle = `hsla(${hue}, 90%, 80%, ${alpha * 0.7})`;
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    }
+
+    function updateStats(kpCount, inferMs, postMs) {
+      document.getElementById("statKp").textContent = kpCount;
+      document.getElementById("statInfer").textContent = `${inferMs.toFixed(0)}ms`;
+      document.getElementById("statPost").textContent = `${postMs.toFixed(0)}ms`;
+      document.getElementById("statTotal").textContent = `${(inferMs + postMs).toFixed(0)}ms`;
+    }
+
+    function updateKpTable(keypoints) {
+      const tbody = document.getElementById("kpTableBody");
+      const top = keypoints.slice(0, 30);
+      tbody.innerHTML = top.map((kp, i) =>
+        `<tr><td>${i + 1}</td><td>${kp.x}</td><td>${kp.y}</td><td>${kp.score.toFixed(6)}</td></tr>`
+      ).join("");
+      if (keypoints.length > 30) {
+        tbody.innerHTML += `<tr><td colspan="4" style="color:var(--text-dim);">… and ${keypoints.length - 30} more</td></tr>`;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Main Inference Pipeline
+    // ═══════════════════════════════════════════════════════════════════════════
+    btnRunInference.addEventListener("click", async () => {
+      if (!onnxSession || !currentImageData) return;
+
+      btnRunInference.disabled = true;
+      setStatus("running inference");
+      const cfg = getConfig();
+
+      try {
+        const { float32: imgData, H, W, origH, origW } = currentImageData;
+        log(`\n⚡ Running inference on ${W}×${H} image…`, "info");
+
+        // Create ONNX Runtime input tensor: [1, 1, H, W]
+        const inputTensor = new ort.Tensor("float32", imgData, [1, 1, H, W]);
+        log(`   Input tensor: [1, 1, ${H}, ${W}]`, "info");
+
+        // Run ONNX model
+        const t1 = performance.now();
+        const results = await onnxSession.run({ image: inputTensor });
+        const inferMs = performance.now() - t1;
+        log(`   Inference: <span class="time">${inferMs.toFixed(1)}ms</span> (onnxruntime-web)`, "success");
+
+        const rawScores = results.scores.data;   // Float32Array (1, 64, H/8, W/8)
+        const rawDesc = results.descriptors.data; // Float32Array (1, 256, H/8, W/8)
+        const scoreDims = results.scores.dims;    // [1, 64, Hc, Wc]
+        const descDims = results.descriptors.dims; // [1, 256, Hd, Wd]
+
+        const Hc = scoreDims[2], Wc = scoreDims[3];
+        const Hd = descDims[2], Wd = descDims[3];
+        log(`   Raw scores: [${scoreDims}]`, "info");
+        log(`   Raw descriptors: [${descDims}]`, "info");
+
+        // ── Post-processing (jax-js + plain JS) ─────────────────────────
+        log("🔧 Post-processing (jax-js + JS)…", "info");
+        const t2 = performance.now();
+
+        // 1. Pixel shuffle via jax-js: (64, Hc, Wc) → (H, W)
+        const { data: scoreMap, H: smH, W: smW } = pixelShuffle(rawScores, 64, Hc, Wc, STRIDE);
+        log(`   Pixel shuffle: (64,${Hc},${Wc}) → (${smH},${smW}) [jax-js]`, "info");
+
+        // 2. NMS
+        const nmsScores = batchedNMS(scoreMap, smH, smW, cfg.nmsRadius);
+        log(`   NMS (radius=${cfg.nmsRadius})`, "info");
+
+        // 3. Border removal
+        if (cfg.borderPad > 0) {
+          removeBorders(nmsScores, smH, smW, cfg.borderPad);
+          log(`   Border removal (pad=${cfg.borderPad})`, "info");
+        }
+
+        // 4. Extract keypoints
+        const keypoints = extractKeypoints(nmsScores, smH, smW, cfg.threshold, cfg.maxKeypoints);
+        log(`   Keypoints: <span class="success">${keypoints.length}</span>`, "success");
+
+        // 5. Sample descriptors
+        const descriptors = sampleDescriptors(keypoints, rawDesc, DESC_DIM, Hd, Wd, STRIDE);
+        const postMs = performance.now() - t2;
+        log(`   Post-processing: <span class="time">${postMs.toFixed(1)}ms</span>`, "success");
+
+        // ── Results ──────────────────────────────────────────────────────
+        log(`   Total: <span class="time">${(inferMs + postMs).toFixed(1)}ms</span>`, "success");
+
+        if (keypoints.length > 0) {
+          const scores = keypoints.map(k => k.score);
+          log(`   Score range: [${Math.min(...scores).toFixed(4)}, ${Math.max(...scores).toFixed(4)}]`, "info");
+
+          if (descriptors.length > 0) {
+            const norms = descriptors.map(d => Math.sqrt(d.reduce((s, v) => s + v * v, 0)));
+            log(`   Descriptor L2 norm: [${Math.min(...norms).toFixed(4)}, ${Math.max(...norms).toFixed(4)}]`, "info");
+          }
+        }
+
+        drawKeypoints(keypoints, origW, origH);
+        updateStats(keypoints.length, inferMs, postMs);
+        updateKpTable(keypoints);
+
+        setStatus("done");
+        log("✓ Inference complete", "success");
+
+      } catch (e) {
+        log(`❌ Inference failed: ${e.message}`, "error");
+        console.error(e);
+        setStatus("error");
+      } finally {
+        btnRunInference.disabled = false;
+      }
+    });
+  </script>
+
+</body>
+
+</html>
