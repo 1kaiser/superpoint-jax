@@ -20,7 +20,9 @@ WEIGHT_URLS = {
     "outdoor": "https://raw.githubusercontent.com/magicleap/SuperGluePretrainedNetwork/master/models/weights/superglue_outdoor.pth",
 }
 
-OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "weights")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 
 
 def download_weights(name, url):

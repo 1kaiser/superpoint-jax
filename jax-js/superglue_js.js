@@ -756,7 +756,8 @@ async function main() {
     console.log(`   Image 2: ${sp2.keypoints.length} keypoints (${(performance.now() - t2).toFixed(0)}ms)`);
 
     // 3. Load SuperGlue weights
-    const sgPath = path.join(__dirname, "..", `superglue_${weightsName}.safetensors`);
+    const sgPath = path.join(__dirname, "..", "models", "weights", `superglue_${weightsName}.safetensors`);
+
     console.log(`\n🔗 Loading SuperGlue (${weightsName}) weights...`);
     const t3 = performance.now();
     const sgWeights = loadSuperGlueWeights(sgPath);
