@@ -231,6 +231,78 @@ function sampleDescriptors(keypoints, rawDesc, descDim, Hd, Wd, stride) {
     return descriptors;
 }
 
+// ─── Visualization ─────────────────────────────────────────────────────────────
+async function drawMatches(img1Path, img2Path, kpts1, kpts2, matches, outputPath) {
+    const m1 = sharp(img1Path).ensureAlpha();
+    const m2 = sharp(img2Path).ensureAlpha();
+
+    const meta1 = await m1.metadata();
+    const meta2 = await m2.metadata();
+
+    const h1 = meta1.height, w1 = meta1.width;
+    const h2 = meta2.height, w2 = meta2.width;
+
+    const outH = Math.max(h1, h2);
+    const outW = w1 + w2 + 10; // 10px padding
+
+    // Buffers for composition
+    const b1 = await m1.toBuffer();
+    const b2 = await m2.toBuffer();
+
+    // Create SVG overlay for lines and points
+    let svg = `<svg width="${outW}" height="${outH}" xmlns="http://www.w3.org/2000/svg">`;
+
+    // Draw matches
+    const colors = [
+        "lime", "cyan", "yellow", "magenta", "orange", "white"
+    ];
+
+    for (let i = 0; i < matches.length; i++) {
+        const m = matches[i];
+        const k1 = kpts1[m.i];
+        const k2 = kpts2[m.j];
+
+        const x1 = k1.x;
+        const y1 = k1.y;
+        const x2 = k2.x + w1 + 10;
+        const y2 = k2.y;
+
+        const color = colors[i % colors.length];
+
+        // Line
+        svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="1.5" stroke-opacity="0.8" />`;
+
+        // Keypoints
+        svg += `<circle cx="${x1}" cy="${y1}" r="3" fill="${color}" stroke="black" stroke-width="0.5" />`;
+        svg += `<circle cx="${x2}" cy="${y2}" r="3" fill="${color}" stroke="black" stroke-width="0.5" />`;
+    }
+
+    svg += `</svg>`;
+
+    // Composite
+    try {
+        await sharp({
+            create: {
+                width: outW,
+                height: outH,
+                channels: 4,
+                background: { r: 0, g: 0, b: 0, alpha: 1 }
+            }
+        })
+            .composite([
+                { input: b1, top: 0, left: 0 },
+                { input: b2, top: 0, left: w1 + 10 },
+                { input: Buffer.from(svg), top: 0, left: 0 }
+            ])
+            .png()
+            .toFile(outputPath);
+        console.log(`\n🖼️  Visualization saved to: ${outputPath}`);
+    } catch (err) {
+        console.error("Error drawing matches:", err);
+    }
+}
+
+
 // ─── Run SuperPoint on a single image ──────────────────────────────────────────
 async function runSuperPoint(session, imagePath) {
     const { data, H, W, origH, origW } = await loadImage(imagePath);
@@ -322,7 +394,7 @@ function normalizeKeypoints(kpts, imageShape) {
 }
 
 // Multi-head attention: query, key, value are [d_model, N] shaped
-function multiHeadAttention(query, key, value, d_model, numHeads, N_q, N_kv, projWeights, mergeWeights) {
+function multiHeadAttention(query, key, value, d_model, numHeads, N_q, N_kv, projWeights, mergeWeights, captureHead0 = false) {
     const dim = Math.floor(d_model / numHeads);
 
     // Project Q, K, V: each proj is Conv1d(d_model, d_model, k=1)
@@ -332,10 +404,13 @@ function multiHeadAttention(query, key, value, d_model, numHeads, N_q, N_kv, pro
 
     // Reshape to [dim, numHeads, N] and compute attention per head
     const output = new Float32Array(d_model * N_q);
+    let capturedScores = null;
+    if (captureHead0) {
+        capturedScores = new Float32Array(N_q * N_kv);
+    }
 
     for (let h = 0; h < numHeads; h++) {
         // For each head, extract dim-sized slice
-        // scores[n_q, n_kv] = sum_d q[d,h,n_q] * k[d,h,n_kv] / sqrt(dim)
         const scale = 1.0 / Math.sqrt(dim);
 
         for (let nq = 0; nq < N_q; nq++) {
@@ -361,6 +436,13 @@ function multiHeadAttention(query, key, value, d_model, numHeads, N_q, N_kv, pro
             }
             for (let i = 0; i < N_kv; i++) scores[i] /= sumExp;
 
+            // Capture Head 0
+            if (captureHead0 && h === 0) {
+                for (let i = 0; i < N_kv; i++) {
+                    capturedScores[nq * N_kv + i] = scores[i];
+                }
+            }
+
             // Weighted sum of values
             for (let d = 0; d < dim; d++) {
                 let sum = 0;
@@ -373,13 +455,14 @@ function multiHeadAttention(query, key, value, d_model, numHeads, N_q, N_kv, pro
     }
 
     // Merge: Conv1d(d_model, d_model, k=1)
-    return conv1d(output, d_model, N_q, mergeWeights.weight, mergeWeights.bias, d_model);
+    const merged = conv1d(output, d_model, N_q, mergeWeights.weight, mergeWeights.bias, d_model);
+    return { data: merged, scores: capturedScores };
 }
 
 // Attentional Propagation: attention + MLP residual
-function attentionalPropagation(x, source, N_x, N_src, d_model, numHeads, attnWeights, mlpLayers) {
-    const message = multiHeadAttention(x, source, source, d_model, numHeads, N_x, N_src,
-        attnWeights.proj, attnWeights.merge);
+function attentionalPropagation(x, source, N_x, N_src, d_model, numHeads, attnWeights, mlpLayers, captureHead0 = false) {
+    const { data: message, scores } = multiHeadAttention(x, source, source, d_model, numHeads, N_x, N_src,
+        attnWeights.proj, attnWeights.merge, captureHead0);
 
     // Concatenate x and message: [d_model*2, N]
     const concat = new Float32Array(d_model * 2 * N_x);
@@ -389,7 +472,7 @@ function attentionalPropagation(x, source, N_x, N_src, d_model, numHeads, attnWe
         for (let n = 0; n < N_x; n++) concat[(d_model + c) * N_x + n] = message[c * N_x + n];
 
     const { data: mlpOut } = mlpForward(concat, d_model * 2, N_x, mlpLayers);
-    return mlpOut;
+    return { data: mlpOut, scores };
 }
 
 // Log-Sinkhorn iterations
@@ -609,7 +692,7 @@ function buildGNNWeights(tensors) {
 }
 
 // ─── SuperGlue Forward Pass ────────────────────────────────────────────────────
-function superGlueForward(kp0, desc0, imgShape0, kp1, desc1, imgShape1, weights) {
+function superGlueForward(kp0, desc0, imgShape0, kp1, desc1, imgShape1, weights, captureAttention = false) {
     const d = SG_CONFIG.descriptorDim;
     const M = kp0.length;
     const N = kp1.length;
@@ -655,19 +738,32 @@ function superGlueForward(kp0, desc0, imgShape0, kp1, desc1, imgShape1, weights)
     for (let i = 0; i < d * N; i++) x1[i] = d1[i] + kenc1[i];
 
     // 5. Attentional GNN: 18 layers
+    const storedAttention = {};
+
     for (let l = 0; l < weights.gnn.length; l++) {
         const layer = weights.gnn[l];
         let src0, src1;
-        if (layer.name === "cross") {
+        const isCross = layer.name === "cross";
+
+        if (isCross) {
             src0 = x1; src1 = x0;
         } else {
             src0 = x0; src1 = x1;
         }
 
-        const delta0 = attentionalPropagation(x0, src0, M, layer.name === "cross" ? N : M,
-            d, SG_CONFIG.numHeads, layer.attn, layer.mlp);
-        const delta1 = attentionalPropagation(x1, src1, N, layer.name === "cross" ? M : N,
-            d, SG_CONFIG.numHeads, layer.attn, layer.mlp);
+        let capture0 = false, capture1 = false;
+        if (captureAttention) {
+            if (l === 2) { capture0 = true; capture1 = true; } // Self Attn 0 and Self Attn 1
+            if (l === 5) { capture0 = true; capture1 = true; } // Cross Attn 0->1 and 1->0
+        }
+
+        const res0 = attentionalPropagation(x0, src0, M, isCross ? N : M,
+            d, SG_CONFIG.numHeads, layer.attn, layer.mlp, capture0);
+        const res1 = attentionalPropagation(x1, src1, N, isCross ? M : N,
+            d, SG_CONFIG.numHeads, layer.attn, layer.mlp, capture1);
+
+        const delta0 = res0.data;
+        const delta1 = res1.data;
 
         const newX0 = new Float32Array(d * M);
         const newX1 = new Float32Array(d * N);
@@ -675,6 +771,15 @@ function superGlueForward(kp0, desc0, imgShape0, kp1, desc1, imgShape1, weights)
         for (let i = 0; i < d * N; i++) newX1[i] = x1[i] + delta1[i];
         x0 = newX0;
         x1 = newX1;
+
+        if (capture0) {
+            const key = isCross ? `cross_${l}_0` : `self_${l}_0`;
+            storedAttention[key] = res0.scores;
+        }
+        if (capture1) {
+            const key = isCross ? `cross_${l}_1` : `self_${l}_1`;
+            storedAttention[key] = res1.scores;
+        }
 
         if ((l + 1) % 6 === 0) {
             process.stdout.write(`   GNN layer ${l + 1}/${weights.gnn.length}\r`);
@@ -703,7 +808,7 @@ function superGlueForward(kp0, desc0, imgShape0, kp1, desc1, imgShape1, weights)
     // 9. Extract matches
     const matches = extractMatches(Z, M, N, M1, N1, SG_CONFIG.matchThreshold);
 
-    return { matches, M, N };
+    return { matches, M, N, attention: storedAttention };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -713,6 +818,15 @@ async function main() {
     const args = process.argv.slice(2);
 
     let img1Path, img2Path, weightsName = "indoor";
+    let outputPath = "superglue_matches.png";
+
+    // Simple arg parser
+    const outputIdx = args.indexOf("--output");
+    if (outputIdx !== -1 && outputIdx + 1 < args.length) {
+        outputPath = args[outputIdx + 1];
+        // Remove from args to simplify positional parsing
+        args.splice(outputIdx, 2);
+    }
 
     if (args[0] === "--test") {
         // Use consecutive demo frames
@@ -729,7 +843,7 @@ async function main() {
         img2Path = args[1];
         if (args.includes("--outdoor")) weightsName = "outdoor";
     } else {
-        console.log("Usage: node superglue_js.js <image1> <image2> [--weights indoor|outdoor]");
+        console.log("Usage: node superglue_js.js <image1> <image2> [--weights indoor|outdoor] [--output filename.png]");
         console.log("       node superglue_js.js --test");
         process.exit(0);
     }
@@ -770,7 +884,8 @@ async function main() {
     const result = superGlueForward(
         sp1.keypoints, sp1.descriptors, sp1.imageShape,
         sp2.keypoints, sp2.descriptors, sp2.imageShape,
-        sgWeights
+        sgWeights,
+        args.includes("--visualize-attention")
     );
     const matchMs = performance.now() - t4;
     console.log(`   Matching: ${matchMs.toFixed(0)}ms`);
@@ -798,9 +913,99 @@ async function main() {
         }
     }
 
+    // 6. Visualization
+    if (args.includes("--visualize-attention") && result.matches.length > 0) {
+        // Pick best match for visualization
+        // Sort matches by score
+        const sorted = result.matches.sort((a, b) => b.score - a.score);
+        const best = sorted[0];
+        const idx1 = best.i;
+        const idx2 = best.j;
+
+        console.log(`\n🎨 Generating Attention Visualization for match ${idx1} <-> ${idx2} (score ${best.score.toFixed(4)})`);
+
+        // Define visualization function
+        async function drawAttention(imgP, kpts, attnScores, queryIdx, outP, colorStr, targetKpts = null, offsetX = 0) {
+            const m = await sharp(imgP).ensureAlpha().metadata();
+            const svgLines = [];
+
+            // Draw all keypoints (dimmed)
+            for (const kp of kpts) {
+                svgLines.push(`<circle cx="${kp.x}" cy="${kp.y}" r="2" fill="lime" fill-opacity="0.3" />`);
+            }
+
+            // Draw attention lines
+            // attnScores is [N_keys]
+            let maxAttn = 0;
+            for (let i = 0; i < attnScores.length; i++) maxAttn = Math.max(maxAttn, attnScores[i]);
+
+            const keys = targetKpts || kpts;
+
+            for (let i = 0; i < keys.length; i++) {
+                const score = attnScores[i];
+                const intensity = score / maxAttn;
+                if (intensity < 0.1) continue; // Prune weak connections
+
+                const k = keys[i];
+                const tx = k.x + offsetX;
+                const ty = k.y;
+
+                // Colormap: White (low) to Red/Color (high)
+                // Or just Red with opacity
+                const opacity = Math.min(1.0, intensity * 2);
+                const strokeWidth = 1 + intensity * 2;
+
+                // Line from query (kpts[queryIdx]) to target (k.x+off, k.y)
+                const q = kpts[queryIdx];
+                svgLines.push(`<line x1="${q.x}" y1="${q.y}" x2="${tx}" y2="${ty}" stroke="${colorStr}" stroke-width="${strokeWidth}" stroke-opacity="${opacity}" />`);
+            }
+
+            // Draw query point (cyan)
+            const q = kpts[queryIdx];
+            svgLines.push(`<circle cx="${q.x}" cy="${q.y}" r="4" fill="cyan" stroke="black" />`);
+
+            const svgOverlay = `
+             <svg width="${m.width}" height="${m.height}">
+                 ${svgLines.join("\n")}
+             </svg>
+             `;
+
+            const overlayBuffer = Buffer.from(svgOverlay);
+            const baseBuffer = await sharp(imgP).ensureAlpha().toBuffer();
+
+            await sharp(baseBuffer)
+                .composite([{ input: overlayBuffer, top: 0, left: 0 }])
+                .toFile(outP);
+            console.log(`   Saved ${outP}`);
+        }
+
+        const W = sp1.imageShape[3]; // Assume same width for both
+
+        // 1. Self Attn A (Layer 2)
+        const attnSelfA = result.attention['self_2_0'].subarray(idx1 * sp1.keypoints.length, (idx1 + 1) * sp1.keypoints.length);
+        await drawAttention(img1Path, sp1.keypoints, attnSelfA, idx1, "viz_self_A.png", "red");
+
+        // 2. Self Attn B (Layer 2)
+        const attnSelfB = result.attention['self_2_1'].subarray(idx2 * sp2.keypoints.length, (idx2 + 1) * sp2.keypoints.length);
+        await drawAttention(img2Path, sp2.keypoints, attnSelfB, idx2, "viz_self_B.png", "red");
+
+        // 3. Cross Attn A->B (Layer 5) - Drawn on A, pointing to B (Virtual Right)
+        const attnCrossA = result.attention['cross_5_0'].subarray(idx1 * sp2.keypoints.length, (idx1 + 1) * sp2.keypoints.length);
+        await drawAttention(img1Path, sp1.keypoints, attnCrossA, idx1, "viz_cross_A.png", "orange", sp2.keypoints, W);
+
+        // 4. Cross Attn B->A (Layer 5) - Drawn on B, pointing to A (Virtual Left)
+        const attnCrossB = result.attention['cross_5_1'].subarray(idx2 * sp1.keypoints.length, (idx2 + 1) * sp1.keypoints.length);
+        await drawAttention(img2Path, sp2.keypoints, attnCrossB, idx2, "viz_cross_B.png", "orange", sp1.keypoints, -W);
+
+    } else if (result.matches.length > 0) {
+        await drawMatches(img1Path, img2Path, sp1.keypoints, sp2.keypoints, result.matches, outputPath);
+    }
+
     const totalMs = performance.now() - t0;
     console.log(`\n   Total time: ${totalMs.toFixed(0)}ms`);
     console.log("═".repeat(60));
 }
 
-main().catch(console.error);
+if (require.main === module) {
+    main().catch(console.error);
+}
