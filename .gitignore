@@ -184,3 +184,10 @@ demo/real_frames/
 demo/test_indices.json
 demo/js_keypoints.json
 demo/image_sacre_coeur_gray.png
+# Large model weight files
+*.safetensors
+superglue_*.pth
+
+# Demo frames dataset
+demo/frames/
+demo/input_depthMaps.zip
