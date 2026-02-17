@@ -48,16 +48,16 @@ Using consecutive frames (`frame_0000.png`, `frame_0001.png`):
 - **Score Range**: 0.2008 – 0.7371.
 - **Accuracy**: Visually consistent with the PyTorch baseline.
 
-### 3.3 Frame Gap Analysis
-We evaluated robustness against large viewpoint changes by matching frames with increasing temporal gaps (5, 10, 15, 20 frames).
-- **Gap 20**: Successfully matched across significant perspective shifts (26 matches).
+### 3.3 Extended Frame Gap Analysis
+We evaluated robustness against extreme viewpoint changes by matching frames with increasing temporal gaps (**10, 30, 50, and 70** frames).
+- **Gap 70**: Successfully matched across significant perspective shifts (131 matches).
 - **Visualization**:
   ![Gap Analysis Stack](jax-js/superglue_gap_analysis_3rows.png)
   
-  *matching quality at Gaps 5, 10, and 15 (Ref vs Ref+N)*
+  *matching quality at Gaps 10, 30, and 50 (Ref vs Ref+N)*
 
 - ![Experiment 2x2](jax-js/superglue_experiment_2x2.png)
-  *degradation patterns across all gaps*
+  *degradation patterns across all gaps (10, 30, 50, 70)*
 
 ### 3.4 Attention Visualization
 We provide deep insights into the GNN's decision-making by visualizing raw attention weights:
