@@ -191,3 +191,14 @@ superglue_*.pth
 # Demo frames dataset
 demo/frames/
 demo/input_depthMaps.zip
+demo/superglue_experiment.pdf
+
+# Generated Visualizations (Intermediate)
+viz_*.png
+superglue_gap_*.png
+*.png
+
+# Allow specific documentation assets
+!jax-js/superglue_*.png
+!jax-js/attention_*.png
+!demo/image_sacre_coeur_gray.png
