@@ -1,6 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import torch
 from torch import nn
@@ -59,12 +59,13 @@ class MultiHeadedAttention(nn.Module):
         self.merge = nn.Conv1d(d_model, d_model, kernel_size=1)
         self.proj = nn.ModuleList([deepcopy(self.merge) for _ in range(3)])
 
-    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         batch_dim = query.size(0)
         query, key, value = [l(x).view(batch_dim, self.dim, self.num_heads, -1)
                              for l, x in zip(self.proj, (query, key, value))]
-        x, _ = attention(query, key, value)
-        return self.merge(x.contiguous().view(batch_dim, self.dim*self.num_heads, -1))
+        x, prob = attention(query, key, value)
+        res = self.merge(x.contiguous().view(batch_dim, self.dim*self.num_heads, -1))
+        return res, prob
 
 
 class AttentionalPropagation(nn.Module):
@@ -74,9 +75,9 @@ class AttentionalPropagation(nn.Module):
         self.mlp = MLP([feature_dim*2, feature_dim*2, feature_dim])
         nn.init.constant_(self.mlp[-1].bias, 0.0)
 
-    def forward(self, x: torch.Tensor, source: torch.Tensor) -> torch.Tensor:
-        message = self.attn(x, source, source)
-        return self.mlp(torch.cat([x, message], dim=1))
+    def forward(self, x: torch.Tensor, source: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        message, prob = self.attn(x, source, source)
+        return self.mlp(torch.cat([x, message], dim=1)), prob
 
 
 class AttentionalGNN(nn.Module):
@@ -87,15 +88,21 @@ class AttentionalGNN(nn.Module):
             for _ in range(len(layer_names))])
         self.names = layer_names
 
-    def forward(self, desc0: torch.Tensor, desc1: torch.Tensor) -> Tuple[torch.Tensor,torch.Tensor]:
+    def forward(self, desc0: torch.Tensor, desc1: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, List[Dict[str, torch.Tensor]]]:
+        all_attentions = []
         for layer, name in zip(self.layers, self.names):
             if name == 'cross':
                 src0, src1 = desc1, desc0
             else:  # if name == 'self':
                 src0, src1 = desc0, desc1
-            delta0, delta1 = layer(desc0, src0), layer(desc1, src1)
+            (delta0, prob0), (delta1, prob1) = layer(desc0, src0), layer(desc1, src1)
             desc0, desc1 = (desc0 + delta0), (desc1 + delta1)
-        return desc0, desc1
+            all_attentions.append({
+                'name': name,
+                'prob0': prob0,
+                'prob1': prob1
+            })
+        return desc0, desc1, all_attentions
 
 
 def log_sinkhorn_iterations(Z: torch.Tensor, log_mu: torch.Tensor, log_nu: torch.Tensor, iters: int) -> torch.Tensor:
@@ -211,7 +218,7 @@ class SuperGlue(nn.Module):
         desc1 = desc1 + self.kenc(kpts1, data['scores1'])
 
         # Multi-layer Transformer network.
-        desc0, desc1 = self.gnn(desc0, desc1)
+        desc0, desc1, attentions = self.gnn(desc0, desc1)
 
         # Final MLP projection.
         mdesc0, mdesc1 = self.final_proj(desc0), self.final_proj(desc1)
@@ -243,4 +250,5 @@ class SuperGlue(nn.Module):
             'matches1': indices1, # use -1 for invalid match
             'matching_scores0': mscores0,
             'matching_scores1': mscores1,
+            'attentions': attentions,
         }

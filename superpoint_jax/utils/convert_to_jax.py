@@ -73,18 +73,79 @@ def get_vgg_block_torch(pytorch_vgg: VGGBlockTorch):
     return conv, bn
 
 
+def convert_superglue_weights(pytorch_model, flax_model):
+    """Convert and copy weights from a PyTorch SuperGlue model to a Flax SuperGlue model."""
+
+    def copy_mlp(nnx_mlp, torch_mlp):
+        # torch_mlp is nn.Sequential of Conv1d, BatchNorm1d, ReLU
+        # nnx_mlp is nnx.Sequential of Conv, BatchNorm, relu
+        torch_layers = [l for l in torch_mlp]
+        nnx_layers = [l for l in nnx_mlp.layers]
+
+        torch_idx = 0
+        for nnx_layer in nnx_layers:
+            if isinstance(nnx_layer, nnx.Conv):
+                # Find next Conv1d in torch
+                while not isinstance(torch_layers[torch_idx], torch.nn.Conv1d):
+                    torch_idx += 1
+                torch_conv = torch_layers[torch_idx]
+
+                # Copy weights
+                w_torch = torch_conv.weight.data.cpu().numpy() # (out, in, 1)
+                w_flax = np.transpose(w_torch[:, :, :, None], (2, 3, 1, 0)) # (1, 1, in, out)
+                nnx_layer.kernel = nnx.Param(jnp.array(w_flax))
+                if torch_conv.bias is not None:
+                    b_torch = torch_conv.bias.data.cpu().numpy()
+                    nnx_layer.bias = nnx.Param(jnp.array(b_torch))
+                torch_idx += 1
+            elif isinstance(nnx_layer, nnx.BatchNorm):
+                # Find next BatchNorm1d in torch
+                while not isinstance(torch_layers[torch_idx], torch.nn.BatchNorm1d):
+                    torch_idx += 1
+                torch_bn = torch_layers[torch_idx]
+
+                # Copy weights
+                nnx_layer.scale = nnx.Param(jnp.array(torch_bn.weight.data.cpu().numpy()))
+                nnx_layer.bias = nnx.Param(jnp.array(torch_bn.bias.data.cpu().numpy()))
+                nnx_layer.mean = nnx.BatchStat(jnp.array(torch_bn.running_mean.data.cpu().numpy()))
+                nnx_layer.var = nnx.BatchStat(jnp.array(torch_bn.running_var.data.cpu().numpy()))
+                torch_idx += 1
+
+    # 1. Keypoint Encoder
+    copy_mlp(flax_model.kenc.encoder, pytorch_model.kenc.encoder)
+
+    # 2. GNN
+    for flax_layer, torch_layer in zip(flax_model.gnn.layers, pytorch_model.gnn.layers):
+        # flax_layer is AttentionalPropagation
+        # attn.proj (list of 3 Convs)
+        for fx_p, pt_p in zip(flax_layer.attn.proj, torch_layer.attn.proj):
+            w_torch = pt_p.weight.data.cpu().numpy()
+            w_flax = np.transpose(w_torch[:, :, :, None], (2, 3, 1, 0))
+            fx_p.kernel = nnx.Param(jnp.array(w_flax))
+            fx_p.bias = nnx.Param(jnp.array(pt_p.bias.data.cpu().numpy()))
+
+        # attn.merge
+        w_torch = torch_layer.attn.merge.weight.data.cpu().numpy()
+        w_flax = np.transpose(w_torch[:, :, :, None], (2, 3, 1, 0))
+        flax_layer.attn.merge.kernel = nnx.Param(jnp.array(w_flax))
+        flax_layer.attn.merge.bias = nnx.Param(jnp.array(torch_layer.attn.merge.bias.data.cpu().numpy()))
+
+        # mlp
+        copy_mlp(flax_layer.mlp, torch_layer.mlp)
+
+    # 3. Final Projection
+    w_torch = pytorch_model.final_proj.weight.data.cpu().numpy()
+    w_flax = np.transpose(w_torch[:, :, :, None], (2, 3, 1, 0))
+    flax_model.final_proj.kernel = nnx.Param(jnp.array(w_flax))
+    flax_model.final_proj.bias = nnx.Param(jnp.array(pytorch_model.final_proj.bias.data.cpu().numpy()))
+
+    # 4. Bin Score
+    flax_model.bin_score.value = jnp.array(pytorch_model.bin_score.data.cpu().numpy())
+
+    return flax_model
+
+
 def convert_superpoint_weights(pytorch_model, flax_model):
-    """Convert and copy weights from a PyTorch SuperPoint model to a Flax SuperPoint model.
-
-    Both models must be constructed with the same architecture.
-
-    Args:
-        pytorch_model: The PyTorch SuperPoint model.
-        flax_model: The Flax SuperPoint model.
-
-    Returns:
-        The Flax SuperPoint model with weights copied from the PyTorch model.
-    """
     backbone_blocks_torch = []
     for i, stage_seq in enumerate(pytorch_model.backbone):
         stage_blocks = []

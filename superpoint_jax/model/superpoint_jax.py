@@ -70,7 +70,7 @@ def extract_keypoints_and_descriptors(scores_nms: jnp.ndarray,
 
     Returns:
         dict: A dictionary with keys:
-            - "keypoints": (jnp.ndarray) shape (B, max_k, 2)
+            - "keypoints": (jnp.ndarray) shape (B, max_k, 2) in (x, y) order
             - "scores": (jnp.ndarray) shape (B, max_k)
             - "descriptors": (jnp.ndarray) shape (B, max_k, C')
             - "valid_counts": (jnp.ndarray) shape (B,)
@@ -78,12 +78,15 @@ def extract_keypoints_and_descriptors(scores_nms: jnp.ndarray,
     kpts_yx_b, scores_b, desc_b, valid_mask_b, valid_counts_b = _extract_keypoints_padded(
         scores_nms, desc_dense, detection_threshold, max_k, stride)
     
-    kpts_yx_b_masked = jnp.where(valid_mask_b[..., None], kpts_yx_b, 0.0)
+    # Convert to (x, y)
+    kpts_xy_b = kpts_yx_b[..., ::-1]
+
+    kpts_xy_b_masked = jnp.where(valid_mask_b[..., None], kpts_xy_b, 0.0)
     scores_b_masked  = jnp.where(valid_mask_b, scores_b, 0.0)
     desc_b_masked    = jnp.where(valid_mask_b[..., None], desc_b, 0.0)
 
     return {
-        "keypoints": kpts_yx_b_masked,
+        "keypoints": kpts_xy_b_masked,
         "scores": scores_b_masked,
         "descriptors": desc_b_masked,
         "valid_counts": valid_counts_b,
@@ -377,6 +380,7 @@ class SuperPointJAX(nnx.Module):
         eps = 1e-8
         norm = jnp.sqrt(jnp.sum(desc_dense ** 2, axis=3, keepdims=True) + eps)
         desc_dense = desc_dense / norm
+        desc_dense = jnp.transpose(desc_dense, (0, 3, 1, 2)) # [B, C, H, W]
         
         if training:
             self.detector.train()

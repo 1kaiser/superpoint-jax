@@ -268,29 +268,15 @@ function sampleDescriptors(keypoints, descriptors, C, Hd, Wd, stride) {
 // ─── Load and Preprocess Image ──────────────────────────────────────────────
 async function loadImage(imagePath) {
     const image = sharp(imagePath);
-    const metadata = await image.metadata();
 
-    // Load raw RGB pixels at original resolution (no resize)
-    const rawRgb = await image
-        .removeAlpha()
-        .ensureAlpha(0) // ensure 3-channel
+    // Use native grayscale for performance
+    const { data: grayBuf, info } = await image
+        .grayscale()
         .raw()
         .toBuffer({ resolveWithObject: true });
 
-    const origH = rawRgb.info.height;
-    const origW = rawRgb.info.width;
-    const channels = rawRgb.info.channels;
-    const rgbBuf = rawRgb.data;
-
-    // Apply cv2-compatible grayscale: round(0.299*R + 0.587*G + 0.114*B)
-    // cv2.imread(path, IMREAD_GRAYSCALE) uses this formula with integer rounding
-    const grayBuf = new Uint8Array(origH * origW);
-    for (let i = 0; i < origH * origW; i++) {
-        const r = rgbBuf[i * channels];
-        const g = rgbBuf[i * channels + 1];
-        const b = rgbBuf[i * channels + 2];
-        grayBuf[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-    }
+    const origH = info.height;
+    const origW = info.width;
 
     // Zero-pad to multiple of stride (matching np.pad mode='constant')
     const stride = CONFIG.stride;
