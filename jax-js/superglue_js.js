@@ -80,21 +80,13 @@ const SG_CONFIG = {
 // ─── Image Loading (from SuperPoint script) ────────────────────────────────────
 async function loadImage(imagePath) {
     const image = sharp(imagePath);
-    const rawRgb = await image.removeAlpha().ensureAlpha(0).raw()
+    const { data: grayBuf, info } = await image
+        .grayscale()
+        .raw()
         .toBuffer({ resolveWithObject: true });
 
-    const origH = rawRgb.info.height;
-    const origW = rawRgb.info.width;
-    const channels = rawRgb.info.channels;
-    const rgbBuf = rawRgb.data;
-
-    const grayBuf = new Uint8Array(origH * origW);
-    for (let i = 0; i < origH * origW; i++) {
-        const r = rgbBuf[i * channels];
-        const g = rgbBuf[i * channels + 1];
-        const b = rgbBuf[i * channels + 2];
-        grayBuf[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-    }
+    const origH = info.height;
+    const origW = info.width;
 
     const stride = SP_CONFIG.stride;
     const padH = origH % stride === 0 ? 0 : stride - (origH % stride);
@@ -194,9 +186,11 @@ function removeBorders(scores, H, W, pad) {
 function sampleDescriptors(keypoints, rawDesc, descDim, Hd, Wd, stride) {
     const descriptors = [];
     for (const kp of keypoints) {
-        const sx = (kp.x / stride + 0.5) / Wd * 2 - 1;
-        const sy = (kp.y / stride + 0.5) / Hd * 2 - 1;
+        // Correct normalization matching PyTorch/JAX: (kp + 0.5) / (Wd * stride) * 2 - 1
+        const sx = (kp.x + 0.5) / (Wd * stride) * 2 - 1;
+        const sy = (kp.y + 0.5) / (Hd * stride) * 2 - 1;
 
+        // Map from [-1,1] back to [0, Wd-1] for bilinear sampling
         const px = (sx + 1) * 0.5 * (Wd - 1);
         const py = (sy + 1) * 0.5 * (Hd - 1);
 
@@ -870,7 +864,7 @@ async function main() {
     console.log(`   Image 2: ${sp2.keypoints.length} keypoints (${(performance.now() - t2).toFixed(0)}ms)`);
 
     // 3. Load SuperGlue weights
-    const sgPath = path.join(__dirname, "..", "models", "weights", `superglue_${weightsName}.safetensors`);
+    const sgPath = path.join(__dirname, "..", "weights", `superglue_${weightsName}.safetensors`);
 
     console.log(`\n🔗 Loading SuperGlue (${weightsName}) weights...`);
     const t3 = performance.now();
@@ -996,6 +990,28 @@ async function main() {
         // 4. Cross Attn B->A (Layer 5) - Drawn on B, pointing to A (Virtual Left)
         const attnCrossB = result.attention['cross_5_1'].subarray(idx2 * sp1.keypoints.length, (idx2 + 1) * sp1.keypoints.length);
         await drawAttention(img2Path, sp2.keypoints, attnCrossB, idx2, "viz_cross_B.png", "orange", sp1.keypoints, -W);
+
+        // 5. Create 2x2 summary grid (Self-Attn A, Self-Attn B, Cross-Attn A, Cross-Attn B)
+        console.log(`\n🖼️  Creating 2x2 attention summary grid...`);
+        const meta = await sharp("viz_self_A.png").metadata();
+        const w = meta.width, h = meta.height;
+        await sharp({
+            create: {
+                width: w * 2,
+                height: h * 2,
+                channels: 4,
+                background: { r: 0, g: 0, b: 0, alpha: 1 }
+            }
+        })
+            .composite([
+                { input: "viz_self_A.png", top: 0, left: 0 },
+                { input: "viz_self_B.png", top: 0, left: w },
+                { input: "viz_cross_A.png", top: h, left: 0 },
+                { input: "viz_cross_B.png", top: h, left: w }
+            ])
+            .png()
+            .toFile("superglue_2x2_comparison.png");
+        console.log(`   Saved: superglue_2x2_comparison.png`);
 
     } else if (result.matches.length > 0) {
         await drawMatches(img1Path, img2Path, sp1.keypoints, sp2.keypoints, result.matches, outputPath);
