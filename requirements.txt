@@ -1,2 +1,14 @@
 opencv-python
 matplotlib
+jax
+jaxlib
+flax
+torch
+torchvision
+kornia
+nbformat
+nbclient
+nbconvert
+ipykernel
+pandas
+tabulate

@@ -88,7 +88,7 @@ class AttentionalGNN(nn.Module):
             for _ in range(len(layer_names))])
         self.names = layer_names
 
-    def forward(self, desc0: torch.Tensor, desc1: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, List[Dict[str, torch.Tensor]]]:
+    def forward(self, desc0: torch.Tensor, desc1: torch.Tensor):
         all_attentions = []
         for layer, name in zip(self.layers, self.names):
             if name == 'cross':

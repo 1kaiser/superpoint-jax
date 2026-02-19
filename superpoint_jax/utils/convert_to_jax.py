@@ -7,6 +7,22 @@ from flax import nnx
 from superpoint_jax.model import VGGBlockNNX, VGGBlockTorch
 
 
+def set_linear_params(nnx_linear: nnx.Linear, torch_linear: torch.nn.Linear):
+    """Copy PyTorch Linear weights to Flax NNX Linear."""
+    w_torch = torch_linear.weight.data.cpu().numpy()
+    w_flax = np.transpose(w_torch)
+    nnx_linear.kernel = nnx.Param(jnp.array(w_flax))
+    if torch_linear.bias is not None:
+        b_torch = torch_linear.bias.data.cpu().numpy()
+        nnx_linear.bias = nnx.Param(jnp.array(b_torch))
+
+
+def set_layernorm_params(nnx_ln: nnx.LayerNorm, torch_ln: torch.nn.LayerNorm):
+    """Copy PyTorch LayerNorm parameters to Flax NNX LayerNorm."""
+    nnx_ln.scale = nnx.Param(jnp.array(torch_ln.weight.data.cpu().numpy()))
+    nnx_ln.bias = nnx.Param(jnp.array(torch_ln.bias.data.cpu().numpy()))
+
+
 def set_conv_params(nnx_conv: nnx.Conv, torch_conv: torch.nn.Conv2d):
     """Copy PyTorch Conv2d weights to Flax NNX Conv.
 
@@ -73,18 +89,63 @@ def get_vgg_block_torch(pytorch_vgg: VGGBlockTorch):
     return conv, bn
 
 
+def convert_lightglue_weights(pytorch_model, flax_model):
+    """Convert and copy weights from a PyTorch LightGlue model to a Flax LightGlue model."""
+
+    # 1. Input Projection
+    if hasattr(pytorch_model, 'input_proj') and not isinstance(pytorch_model.input_proj, torch.nn.Identity):
+        set_linear_params(flax_model.input_proj, pytorch_model.input_proj)
+
+    # 2. Positional Encoding
+    set_linear_params(flax_model.posenc.Wr, pytorch_model.posenc.Wr)
+
+    # 3. Transformers
+    for i in range(len(pytorch_model.transformers)):
+        pt_trans = pytorch_model.transformers[i]
+        fx_trans = flax_model.transformers[i]
+
+        # Self Attention
+        set_linear_params(fx_trans.self_attn.Wqkv, pt_trans.self_attn.Wqkv)
+        set_linear_params(fx_trans.self_attn.out_proj, pt_trans.self_attn.out_proj)
+
+        # Self FFN
+        set_linear_params(fx_trans.self_attn.ffn.layers[0], pt_trans.self_attn.ffn[0])
+        set_layernorm_params(fx_trans.self_attn.ffn.layers[1], pt_trans.self_attn.ffn[1])
+        set_linear_params(fx_trans.self_attn.ffn.layers[3], pt_trans.self_attn.ffn[3])
+
+        # Cross Attention
+        set_linear_params(fx_trans.cross_attn.to_qk, pt_trans.cross_attn.to_qk)
+        set_linear_params(fx_trans.cross_attn.to_v, pt_trans.cross_attn.to_v)
+        set_linear_params(fx_trans.cross_attn.to_out, pt_trans.cross_attn.to_out)
+
+        # Cross FFN
+        set_linear_params(fx_trans.cross_attn.ffn.layers[0], pt_trans.cross_attn.ffn[0])
+        set_layernorm_params(fx_trans.cross_attn.ffn.layers[1], pt_trans.cross_attn.ffn[1])
+        set_linear_params(fx_trans.cross_attn.ffn.layers[3], pt_trans.cross_attn.ffn[3])
+
+    # 4. Log Assignment
+    for i in range(len(pytorch_model.log_assignment)):
+        set_linear_params(flax_model.log_assignment[i].matchability, pytorch_model.log_assignment[i].matchability)
+        set_linear_params(flax_model.log_assignment[i].final_proj, pytorch_model.log_assignment[i].final_proj)
+
+    # 5. Token Confidence
+    for i in range(len(pytorch_model.token_confidence)):
+        set_linear_params(flax_model.token_confidence[i].token.layers[0], pytorch_model.token_confidence[i].token[0])
+
+    return flax_model
+
+
 def convert_superglue_weights(pytorch_model, flax_model):
     """Convert and copy weights from a PyTorch SuperGlue model to a Flax SuperGlue model."""
 
     def copy_mlp(nnx_mlp, torch_mlp):
         # torch_mlp is nn.Sequential of Conv1d, BatchNorm1d, ReLU
-        # nnx_mlp is nnx.Sequential of Conv, BatchNorm, relu
         torch_layers = [l for l in torch_mlp]
         nnx_layers = [l for l in nnx_mlp.layers]
 
         torch_idx = 0
         for nnx_layer in nnx_layers:
-            if isinstance(nnx_layer, nnx.Conv):
+            if isinstance(nnx_layer, nnx.Linear):
                 # Find next Conv1d in torch
                 while not isinstance(torch_layers[torch_idx], torch.nn.Conv1d):
                     torch_idx += 1
@@ -92,7 +153,7 @@ def convert_superglue_weights(pytorch_model, flax_model):
 
                 # Copy weights
                 w_torch = torch_conv.weight.data.cpu().numpy() # (out, in, 1)
-                w_flax = np.transpose(w_torch[:, :, :, None], (2, 3, 1, 0)) # (1, 1, in, out)
+                w_flax = np.transpose(w_torch[:, :, 0]) # (in, out)
                 nnx_layer.kernel = nnx.Param(jnp.array(w_flax))
                 if torch_conv.bias is not None:
                     b_torch = torch_conv.bias.data.cpu().numpy()
@@ -117,16 +178,16 @@ def convert_superglue_weights(pytorch_model, flax_model):
     # 2. GNN
     for flax_layer, torch_layer in zip(flax_model.gnn.layers, pytorch_model.gnn.layers):
         # flax_layer is AttentionalPropagation
-        # attn.proj (list of 3 Convs)
+        # attn.proj (list of 3 Linears)
         for fx_p, pt_p in zip(flax_layer.attn.proj, torch_layer.attn.proj):
             w_torch = pt_p.weight.data.cpu().numpy()
-            w_flax = np.transpose(w_torch[:, :, :, None], (2, 3, 1, 0))
+            w_flax = np.transpose(w_torch[:, :, 0])
             fx_p.kernel = nnx.Param(jnp.array(w_flax))
             fx_p.bias = nnx.Param(jnp.array(pt_p.bias.data.cpu().numpy()))
 
         # attn.merge
         w_torch = torch_layer.attn.merge.weight.data.cpu().numpy()
-        w_flax = np.transpose(w_torch[:, :, :, None], (2, 3, 1, 0))
+        w_flax = np.transpose(w_torch[:, :, 0])
         flax_layer.attn.merge.kernel = nnx.Param(jnp.array(w_flax))
         flax_layer.attn.merge.bias = nnx.Param(jnp.array(torch_layer.attn.merge.bias.data.cpu().numpy()))
 
@@ -135,7 +196,7 @@ def convert_superglue_weights(pytorch_model, flax_model):
 
     # 3. Final Projection
     w_torch = pytorch_model.final_proj.weight.data.cpu().numpy()
-    w_flax = np.transpose(w_torch[:, :, :, None], (2, 3, 1, 0))
+    w_flax = np.transpose(w_torch[:, :, 0])
     flax_model.final_proj.kernel = nnx.Param(jnp.array(w_flax))
     flax_model.final_proj.bias = nnx.Param(jnp.array(pytorch_model.final_proj.bias.data.cpu().numpy()))
 
