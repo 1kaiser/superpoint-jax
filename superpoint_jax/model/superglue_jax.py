@@ -10,7 +10,7 @@ class MLP(nnx.Module):
         self.layers = nnx.List([])
         curr_channels = in_channels
         for i, out_channels in enumerate(channels):
-            self.layers.append(nnx.Conv(curr_channels, out_channels, kernel_size=(1, 1), use_bias=True, rngs=rngs))
+            self.layers.append(nnx.Linear(curr_channels, out_channels, use_bias=True, rngs=rngs))
             if i < len(channels) - 1:
                 if do_bn:
                     self.layers.append(nnx.BatchNorm(out_channels, rngs=rngs))
@@ -26,10 +26,7 @@ class MLP(nnx.Module):
                     layer.eval()
                 x = layer(x)
             elif callable(layer):
-                if isinstance(layer, nnx.Module):
-                    x = layer(x)
-                else: # e.g. nnx.relu
-                    x = layer(x)
+                x = layer(x)
         return x
 
 def normalize_keypoints(kpts: jnp.ndarray, image_shape: Tuple[int, int, int, int]) -> jnp.ndarray:
@@ -47,51 +44,46 @@ class KeypointEncoder(nnx.Module):
 
     def __call__(self, kpts: jnp.ndarray, scores: jnp.ndarray, training: bool = False) -> jnp.ndarray:
         # kpts: [B, N, 2], scores: [B, N]
-        # Transpose kpts to [B, 2, N] and concat scores [B, 1, N]
-        inputs = jnp.concatenate([kpts.transpose(0, 2, 1), scores[:, None, :]], axis=1)
-        # encoder expects [B, H, W, C] for Conv2D, but we have [B, C, N]
-        # We can treat N as a spatial dimension [B, 1, N, C]
-        x = inputs.transpose(0, 2, 1)[:, None, :, :] # [B, 1, N, 3]
-        x = self.encoder(x, training=training) # [B, 1, N, feature_dim]
-        return x[:, 0, :, :].transpose(0, 2, 1) # [B, feature_dim, N]
+        inputs = jnp.concatenate([kpts, scores[:, :, None]], axis=2)
+        x = self.encoder(inputs, training=training) # [B, N, feature_dim]
+        return x.transpose(0, 2, 1) # [B, feature_dim, N]
 
 def attention(query: jnp.ndarray, key: jnp.ndarray, value: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    dim = query.shape[1]
-    # query, key, value: [B, dim, num_heads, N]
-    scores = jnp.einsum('bdhn,bdhm->bhnm', query, key) / jnp.sqrt(dim)
+    # query, key, value: [B, num_heads, N, head_dim]
+    dim = query.shape[-1]
+    scores = jnp.einsum('bhn d, bhm d -> bhnm', query, key) / jnp.sqrt(dim)
     prob = jax.nn.softmax(scores, axis=-1)
-    return jnp.einsum('bhnm,bdhm->bdhn', prob, value), prob
+    return jnp.einsum('bhnm, bhmd -> bhnd', prob, value), prob
 
 class MultiHeadedAttention(nnx.Module):
     """Multi-head attention to increase model expressivity."""
     def __init__(self, num_heads: int, d_model: int, *, rngs: nnx.Rngs):
         assert d_model % num_heads == 0
-        self.dim = d_model // num_heads
+        self.head_dim = d_model // num_heads
         self.num_heads = num_heads
-        self.proj = nnx.List([nnx.Conv(d_model, d_model, kernel_size=(1, 1), use_bias=True, rngs=rngs) for _ in range(3)])
-        self.merge = nnx.Conv(d_model, d_model, kernel_size=(1, 1), use_bias=True, rngs=rngs)
+        self.proj = nnx.List([nnx.Linear(d_model, d_model, use_bias=True, rngs=rngs) for _ in range(3)])
+        self.merge = nnx.Linear(d_model, d_model, use_bias=True, rngs=rngs)
 
     def __call__(self, query: jnp.ndarray, key: jnp.ndarray, value: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
         # query, key, value: [B, d_model, N]
-        B = query.shape[0]
-        d_model = query.shape[1]
+        B, D, N = query.shape
+        B, D, M = key.shape
 
-        # Prepare for Conv2D: [B, 1, N, d_model]
-        q = self.proj[0](query.transpose(0, 2, 1)[:, None, :, :])
-        k = self.proj[1](key.transpose(0, 2, 1)[:, None, :, :])
-        v = self.proj[2](value.transpose(0, 2, 1)[:, None, :, :])
+        # Linear expects [B, N, D]. Torch Conv1d output [B, D, N]
+        # Torch view(B, head_dim, num_heads, N)
+        q = self.proj[0](query.transpose(0, 2, 1)).transpose(0, 2, 1).reshape(B, self.head_dim, self.num_heads, N)
+        k = self.proj[1](key.transpose(0, 2, 1)).transpose(0, 2, 1).reshape(B, self.head_dim, self.num_heads, M)
+        v = self.proj[2](value.transpose(0, 2, 1)).transpose(0, 2, 1).reshape(B, self.head_dim, self.num_heads, M)
 
-        # Reshape to [B, dim, num_heads, N]
-        q = q[:, 0, :, :].transpose(0, 2, 1).reshape(B, self.dim, self.num_heads, -1)
-        k = k[:, 0, :, :].transpose(0, 2, 1).reshape(B, self.dim, self.num_heads, -1)
-        v = v[:, 0, :, :].transpose(0, 2, 1).reshape(B, self.dim, self.num_heads, -1)
+        # Transpose to [B, num_heads, N, head_dim] for attention
+        q = q.transpose(0, 2, 3, 1)
+        k = k.transpose(0, 2, 3, 1)
+        v = v.transpose(0, 2, 3, 1)
 
-        x, prob = attention(q, k, v)
-        # x: [B, dim, num_heads, N] -> [B, d_model, N]
-        x = x.reshape(B, d_model, -1)
-
-        # Merge: [B, 1, N, d_model]
-        res = self.merge(x.transpose(0, 2, 1)[:, None, :, :])[:, 0, :, :].transpose(0, 2, 1)
+        x, prob = attention(q, k, v) # [B, H, N, head_dim]
+        # Transpose back to [B, head_dim, num_heads, N] to match Torch view(B, D, N)
+        x = x.transpose(0, 3, 1, 2).reshape(B, D, N)
+        res = self.merge(x.transpose(0, 2, 1)).transpose(0, 2, 1) # [B, D, N]
         return res, prob
 
 class AttentionalPropagation(nnx.Module):
@@ -101,11 +93,8 @@ class AttentionalPropagation(nnx.Module):
 
     def __call__(self, x: jnp.ndarray, source: jnp.ndarray, training: bool = False) -> Tuple[jnp.ndarray, jnp.ndarray]:
         message, prob = self.attn(x, source, source)
-        # concat on channel dim: [B, feature_dim * 2, N]
-        inputs = jnp.concatenate([x, message], axis=1)
-        # MLP expects [B, 1, N, C]
-        inputs = inputs.transpose(0, 2, 1)[:, None, :, :]
-        res = self.mlp(inputs, training=training)[:, 0, :, :].transpose(0, 2, 1)
+        inputs = jnp.concatenate([x, message], axis=1) # [B, D*2, N]
+        res = self.mlp(inputs.transpose(0, 2, 1), training=training).transpose(0, 2, 1) # [B, D, N]
         return res, prob
 
 class AttentionalGNN(nnx.Module):
@@ -185,11 +174,14 @@ class SuperGlueJAX(nnx.Module):
         self.gnn = AttentionalGNN(
             feature_dim=self.config['descriptor_dim'], layer_names=self.config['GNN_layers'], rngs=rngs)
 
-        self.final_proj = nnx.Conv(
+        self.final_proj = nnx.Linear(
             self.config['descriptor_dim'], self.config['descriptor_dim'],
-            kernel_size=(1, 1), use_bias=True, rngs=rngs)
+            use_bias=True, rngs=rngs)
 
         self.bin_score = nnx.Param(jnp.array(1.0))
+
+    def normalize_keypoints(self, kpts: jnp.ndarray, image_shape: Tuple[int, int, int, int]) -> jnp.ndarray:
+        return normalize_keypoints(kpts, image_shape)
 
     def __call__(self, data: Dict[str, jnp.ndarray], training: bool = False) -> Dict[str, jnp.ndarray]:
         """Run SuperGlue on a pair of keypoints and descriptors."""
@@ -209,9 +201,8 @@ class SuperGlueJAX(nnx.Module):
         desc0, desc1, attentions = self.gnn(desc0, desc1, training=training)
 
         # Final MLP projection.
-        # Conv2D expects [B, 1, N, C]
-        mdesc0 = self.final_proj(desc0.transpose(0, 2, 1)[:, None, :, :])[:, 0, :, :].transpose(0, 2, 1)
-        mdesc1 = self.final_proj(desc1.transpose(0, 2, 1)[:, None, :, :])[:, 0, :, :].transpose(0, 2, 1)
+        mdesc0 = self.final_proj(desc0.transpose(0, 2, 1)).transpose(0, 2, 1)
+        mdesc1 = self.final_proj(desc1.transpose(0, 2, 1)).transpose(0, 2, 1)
 
         # Compute matching descriptor distance.
         scores = jnp.einsum('bdn,bdm->bnm', mdesc0, mdesc1)
@@ -219,7 +210,7 @@ class SuperGlueJAX(nnx.Module):
 
         # Run the optimal transport.
         scores = log_optimal_transport(
-            scores, self.bin_score,
+            scores, self.bin_score.value,
             iters=self.config['sinkhorn_iterations'])
 
         # Get the matches with score above "match_threshold".
@@ -230,29 +221,16 @@ class SuperGlueJAX(nnx.Module):
         max1 = jnp.max(matching_scores, axis=1)
         indices1 = jnp.argmax(matching_scores, axis=1)
 
-        # Mutual check
         B, M, N = matching_scores.shape
         batch_indices = jnp.arange(B)[:, None]
-
-        # indices0 is [B, M], values are in [0, N-1]
-        # indices1 is [B, N], values are in [0, M-1]
-        # Check: indices1[batch, indices0[batch, m]] == m
-
-        # Gather indices1 using indices0
-        # Result should be [B, M]
-        # We need to use advanced indexing for JAX
         m_indices = jnp.arange(M)[None, :]
         matched_indices1 = jnp.take_along_axis(indices1, indices0, axis=1)
         mutual0 = matched_indices1 == m_indices
 
         mscores0 = jnp.where(mutual0, jnp.exp(max0), 0.0)
         valid0 = mutual0 & (mscores0 > self.config['match_threshold'])
-
-        # Final matches0: index of matched kp in image1, or -1
         matches0 = jnp.where(valid0, indices0, -1)
 
-        # For matches1, we can do similar or gather from matches0
-        # Actually it's easier to just compute it symmetrically
         n_indices = jnp.arange(N)[None, :]
         matched_indices0 = jnp.take_along_axis(indices0, indices1, axis=1)
         mutual1 = matched_indices0 == n_indices
