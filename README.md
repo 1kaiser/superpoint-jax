@@ -31,6 +31,24 @@ The project consists of three main components:
 ### 2.3 Verification
 A "Triple Comparison" notebook validates the outputs by running PyTorch, JAX, and JS pipelines side-by-side on the HLoc "Sacré-Cœur" dataset. We also provide a dedicated LightGlue comparison notebook.
 
+### 2.4 Confidence-Gated 3D Pipeline
+We introduce a robust 3D reconstruction pipeline (`demo/scripts/run_confidence_pipeline.py`) that leverages geometric priors and temporal consistency:
+- **Two-Tier Tracking**: Prioritizes "persistent" keypoints tracked across ≥3 frames (via `PersistenceTracker`) for drift-free odometry, falling back to frame-to-frame LightGlue matches for initialization.
+- **Geometric Confidence Masking**: Filters unreliable regions using:
+    - **Radial Mask**: Higher confidence in the center, decaying to 0.2 at the periphery.
+    - **Boundary Mask**: Discards the outer 10% of the image.
+    - **Depth Edge Mask**: Rejects pixels near depth discontinuities (halos).
+- **Alignment**: Uses weighted Kabsch alignment on confident 3D points, gated by a strict 5cm reprojection error threshold to reject outliers.
+
+### 2.5 3D Export & Verification
+The pipeline exports accumulated point clouds to standard formats:
+- **.GLB**: For easy web visualization.
+- **.LAS**: For professional point cloud processing tools.
+
+We provide a **GLB Verification Suite** to validate 3D outputs:
+- **Viewer**: A web-based 3D viewer (`demo/viewer/index.html`) utilizing `<model-viewer>`.
+- **Puppeteer Script**: Automates the loading and verification of the generated GLB file (`demo/scripts/verify_glb.js`).
+
 ## 3. Results
 
 We evaluated the pipeline on standard benchmarks and real-world image pairs.
@@ -75,12 +93,14 @@ We have successfully demonstrated that complex geometric deep learning models li
 
 ### Prerequisites
 - Python 3.10+
-- Node.js 18+ (for JS inference)
+- Node.js 18+ (for JS inference and 3D verification)
 
 ### Installation
 ```bash
 pip install -r requirements.txt
 pip install -e LightGlue/
+# For 3D Verification (Optional)
+npm install puppeteer
 ```
 
 ### LightGlue Comparison Demo
@@ -101,6 +121,19 @@ Or use the generated notebook: `demo/lightglue_jax_comparison.ipynb`.
     # Automatically runs on demo frames
     node superglue_js.js --test
     ```
+
+### Confidence-Gated 3D Pipeline
+To run the full 3D reconstruction pipeline on your own data (requires `input_data/input_frames` and `input_data/depth_maps`):
+```bash
+python demo/scripts/run_confidence_pipeline.py
+```
+
+### 3D Verification
+Validate the generated GLB output using the browser-based viewer:
+```bash
+# Starts a local server and captures a screenshot of the model
+node demo/scripts/verify_glb.js
+```
 
 ### Model Weight Directory
 Weights are stored in `weights/`:

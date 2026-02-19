@@ -12,3 +12,6 @@ nbconvert
 ipykernel
 pandas
 tabulate
+trimesh
+laspy[lazrs]
+tqdm
