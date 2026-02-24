@@ -144,10 +144,13 @@ def run_pipeline():
     plt.imshow(combined_img)
     plt.axis('off')
     
-    # Use a colormap for colorful connections
-    cmap = plt.get_cmap('hsv')
-    colors = cmap(np.linspace(0, 1, len(matched_kpts0)))
-    np.random.shuffle(colors) # Shuffle to differentiate nearby points
+    # Use a rainbow colormap based on x-coordinate of kpts0
+    cmap = plt.get_cmap('gist_rainbow')
+    # Normalize x-coordinates to [0, 1] for colormap
+    x0 = matched_kpts0[:, 0]
+    x0_min, x0_max = x0.min(), x0.max()
+    x0_norm = (x0 - x0_min) / (x0_max - x0_min + 1e-6)
+    colors = cmap(x0_norm)
     
     for i, (p0, p1) in enumerate(zip(matched_kpts0, matched_kpts1)):
         plt.plot([p0[0], p1[0] + w0], [p0[1], p1[1]], color=colors[i], linewidth=0.75, alpha=0.6)

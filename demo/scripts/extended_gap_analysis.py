@@ -130,10 +130,12 @@ def run_analysis():
         matched_kpts0 = kpts0[idx0]
         matched_kpts1 = kpts1[idx1]
         
-        # Use a colormap for colorful connections
-        cmap = plt.get_cmap('hsv')
-        vis_colors = cmap(np.linspace(0, 1, len(matched_kpts0)))
-        np.random.shuffle(vis_colors)
+        # Use a rainbow colormap based on x-coordinate of matched_kpts0
+        cmap = plt.get_cmap('gist_rainbow')
+        x0 = matched_kpts0[:, 0]
+        x0_min, x0_max = x0.min(), x0.max()
+        x0_norm = (x0 - x0_min) / (x0_max - x0_min + 1e-6)
+        vis_colors = cmap(x0_norm)
         
         for i, (p0, p1) in enumerate(zip(matched_kpts0, matched_kpts1)):
             plt.plot([p0[0], p1[0] + w0], [p0[1], p1[1]], color=vis_colors[i], linewidth=0.75, alpha=0.6)
