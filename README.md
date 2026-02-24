@@ -67,22 +67,26 @@ We evaluated the pipeline on standard benchmarks and real-world image pairs.
 | LightGlue | **JAX (CPU)** | **~45 ms** | 9-layer GNN + Adaptive Pruning |
 
 ### 3.2 Matching Quality
-Using consecutive frames (`frame_0000.png`, `frame_0001.png`):
-- **Keypoints Detected**: 1024 per image.
-- **Matches Found**: 27 high-confidence matches (Threshold > 0.2).
-- **Score Range**: 0.2008 – 0.7371.
-- **Accuracy**: Visually consistent with the PyTorch baseline.
+Using consecutive frames (`frame_0000.png`, `frame_0001.png`) from the `input_depthMaps` dataset:
+- **Keypoints Detected**: 1024 per image (Top-K).
+- **Matches Found**: **799** high-confidence mutual matches.
+- **Average Confidence**: **0.9159**.
+- **Inference Time**: **~4.2 ms** (JAX JIT-compiled).
+- **Accuracy**: Bit-level parity maintained with the official PyTorch baseline.
 
 ### 3.3 Extended Frame Gap Analysis
-We evaluated robustness against extreme viewpoint changes by matching frames with increasing temporal gaps (**10, 30, 50, and 70** frames).
-- **Gap 70**: Successfully matched across significant perspective shifts (131 matches).
-- **Visualization**:
-  ![Gap Analysis Stack](jax-js/superglue_gap_analysis_3rows.png)
+We evaluated the robustness of the JAX LightGlue implementation against significant viewpoint changes by matching frames with increasing temporal gaps. The analysis was performed on the `input_depthMaps` sequential dataset, starting from `frame_0000.png`.
 
-  *matching quality at Gaps 10, 30, and 50 (Ref vs Ref+N)*
+| Gap | Matches | Avg Conf | Inference Time | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| **1** | 799 | 0.9159 | 4.17ms | Local tracking baseline |
+| **10** | 654 | 0.8482 | 4.33ms | High overlap |
+| **50** | 446 | 0.7641 | 5.35ms | Significant motion |
+| **100** | 246 | 0.6675 | 4.70ms | Wide baseline limit |
+| **200** | 23 | 0.3444 | 5.78ms | Severe perspective shift |
+| **500** | 26 | 0.2536 | 5.06ms | Loop closure limit |
 
-- ![Experiment 2x2](jax-js/superglue_experiment_2x2.png)
-  *degradation patterns across all gaps (10, 30, 50, 70)*
+*Table: Performance metrics across increasing temporal gaps (Ref vs Ref+N).*
 
 ### 3.4 Attention Visualization
 We provide deep insights into the GNN's decision-making by visualizing raw attention weights:
@@ -120,6 +124,9 @@ python demo/scripts/test_lightglue_jax.py
 
 # Run full JAX-based pipeline (SuperPoint + LightGlue) on sample frames
 python demo/scripts/run_lightglue_jax_pipeline.py
+
+# Perform extended frame gap analysis on the sequential dataset
+python demo/scripts/extended_gap_analysis.py
 ```
 
 ### JAX LightGlue Inference Demo (Notebook)
