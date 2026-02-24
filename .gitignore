@@ -1,3 +1,9 @@
+# Image files in results are allowed
+!demo/assets/results/*.png
+!demo/assets/results/*.jpg
+!demo/assets/results/*.JPG
+!demo/assets/results/*.PNG
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
