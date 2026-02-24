@@ -58,7 +58,7 @@ def run_analysis():
     jit_lg = jax.jit(lg_model.apply)
     
     base_frame_idx = 0
-    gaps = [1, 50, 100, 200]
+    gaps = [1] + list(range(5, 201, 5))
     results = []
     
     img_dir = "data/input_frames"
