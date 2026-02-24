@@ -37,24 +37,16 @@ Using the JAX-compiled pipeline on sequential video frames (aspect-ratio preserv
 ![Main Pipeline Result](demo/assets/results/main_pipeline_result.png)
 
 ### Extended Frame Gap Analysis
-Evaluation of matching robustness across increasing temporal gaps (Ref vs Ref+N).
+Performance decay across increasing temporal gaps (Ref vs Ref+N).
 
-| Gap | Matches | Avg Conf | Inference Time | Notes |
-| :--- | :--- | :--- | :--- | :--- |
-| **1** | 880 | 0.9598 | 4.24ms | Local tracking baseline |
-| **50** | 542 | 0.7832 | 4.5ms* | Significant motion |
-| **100** | 295 | 0.7103 | 4.8ms* | Robust wide-baseline |
-| **200** | 15 | 0.2722 | 4.37ms | Severe perspective limit |
+| Gap | Matches | Avg Conf | Inference Time | Visualization |
+| :---: | :---: | :---: | :---: | :--- |
+| **1** | 880 | 0.9598 | 4.24ms | ![Gap 1](demo/assets/results/matches_gap_001.png) |
+| **50** | 542 | 0.7832 | 4.5ms* | ![Gap 50](demo/assets/results/matches_gap_050.png) |
+| **100** | 295 | 0.7103 | 4.8ms* | ![Gap 100](demo/assets/results/matches_gap_100.png) |
+| **200** | 15 | 0.2722 | 4.37ms | ![Gap 200](demo/assets/results/matches_gap_200.png) |
 
 *\*Excluding initial JAX JIT compilation overhead.*
-
-#### Visual Robustness (Gap 50):
-![Gap 50](demo/assets/results/matches_gap_050.png)
-*Figure: Stable matching at Gap 50 with 542 mutual matches.*
-
-#### Visual Robustness (Gap 100):
-![Gap 100](demo/assets/results/matches_gap_100.png)
-*Figure: Robust wide-baseline matching at Gap 100 with 295 mutual matches.*
 
 ## 🛠️ Usage & Testing
 
