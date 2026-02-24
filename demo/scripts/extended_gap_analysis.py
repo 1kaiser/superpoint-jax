@@ -6,6 +6,7 @@ import cv2
 import os
 import time
 from tabulate import tabulate
+import matplotlib.pyplot as plt
 
 # Local imports
 from lightglue_jax.models.superpoint import SuperPoint
@@ -47,7 +48,7 @@ def run_analysis():
     jit_lg = jax.jit(lg_model.apply)
     
     base_frame_idx = 0
-    gaps = [1, 10, 50, 100, 200, 500]
+    gaps = [1, 50, 100, 200]
     results = []
     
     img_dir = "data/input_frames"
@@ -96,6 +97,38 @@ def run_analysis():
         
         print(f"Gap {gap:3d}: Matches={num_matches:4d}, Avg Conf={avg_conf:.4f}, Time={match_time:.2f}ms")
         results.append([gap, num_matches, f"{avg_conf:.4f}", f"{match_time:.2f}ms"])
+        
+        # Save visualization for the gap
+        idx0 = jnp.where(valid)[0]
+        idx1 = m0[idx0]
+        
+        h0, w0 = input0.shape[1:3]
+        h1, w1 = input1.shape[1:3]
+        
+        # Load RGB for visualization if available
+        rgb0 = cv2.imread(base_path)
+        rgb0 = cv2.resize(cv2.cvtColor(rgb0, cv2.COLOR_BGR2RGB), (w0, h0))
+        rgb1 = cv2.imread(target_path)
+        rgb1 = cv2.resize(cv2.cvtColor(rgb1, cv2.COLOR_BGR2RGB), (w1, h1))
+        
+        combined_img = np.zeros((max(h0, h1), w0 + w1, 3), dtype=np.uint8)
+        combined_img[:h0, :w0, :] = rgb0
+        combined_img[:h1, w0:, :] = rgb1
+        
+        plt.figure(figsize=(20, 10))
+        plt.imshow(combined_img)
+        plt.axis('off')
+        plt.title(f"LightGlue JAX Matches - Gap {gap} ({num_matches} matches)")
+        
+        matched_kpts0 = kpts0[idx0]
+        matched_kpts1 = kpts1[idx1]
+        
+        for p0, p1 in zip(matched_kpts0, matched_kpts1):
+            plt.plot([p0[0], p1[0] + w0], [p0[1], p1[1]], 'c-', linewidth=0.5, alpha=0.5)
+            
+        vis_path = f"output/matches_gap_{gap:03d}.png"
+        plt.savefig(vis_path, bbox_inches='tight', pad_inches=0)
+        plt.close()
         
     print("\nExtended Frame Gap Analysis Results:")
     print(tabulate(results, headers=["Gap", "Matches", "Avg Conf", "Inference Time"], tablefmt="github"))

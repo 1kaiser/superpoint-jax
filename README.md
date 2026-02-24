@@ -74,6 +74,9 @@ Using consecutive frames (`frame_0000.png`, `frame_0001.png`) from the `input_de
 - **Inference Time**: **~4.2 ms** (JAX JIT-compiled).
 - **Accuracy**: Bit-level parity maintained with the official PyTorch baseline.
 
+![Main Pipeline Result](demo/assets/results/main_pipeline_result.png)
+*Figure: High-confidence mutual matches extracted using JAX SuperPoint and matched via JAX LightGlue.*
+
 ### 3.3 Extended Frame Gap Analysis
 We evaluated the robustness of the JAX LightGlue implementation against significant viewpoint changes by matching frames with increasing temporal gaps. The analysis was performed on the `input_depthMaps` sequential dataset, starting from `frame_0000.png`.
 
@@ -87,6 +90,19 @@ We evaluated the robustness of the JAX LightGlue implementation against signific
 | **500** | 26 | 0.2536 | 5.06ms | Loop closure limit |
 
 *Table: Performance metrics across increasing temporal gaps (Ref vs Ref+N).*
+
+#### Visual Results:
+![Gap 1](demo/assets/results/matches_gap_001.png)
+*Gap 1 (799 matches) - Sequential tracking baseline.*
+
+![Gap 50](demo/assets/results/matches_gap_050.png)
+*Gap 50 (446 matches) - Significant viewpoint change.*
+
+![Gap 100](demo/assets/results/matches_gap_100.png)
+*Gap 100 (246 matches) - Robust wide-baseline matching.*
+
+![Gap 200](demo/assets/results/matches_gap_200.png)
+*Gap 200 (23 matches) - Extreme perspective shift limits.*
 
 ### 3.4 Attention Visualization
 We provide deep insights into the GNN's decision-making by visualizing raw attention weights:
