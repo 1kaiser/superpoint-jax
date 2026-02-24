@@ -12,14 +12,24 @@ import matplotlib.pyplot as plt
 from lightglue_jax.models.superpoint import SuperPoint
 from lightglue_jax.models.lightglue import LightGlue
 
-def load_image(path, target_size=(1024, 1024)):
+def load_image(path, max_size=1024):
     img = cv2.imread(path)
     if img is None:
-        return None, None
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    img_gray_resized = cv2.resize(img_gray, target_size)
-    input_tensor = jnp.array(img_gray_resized[None, ..., None] / 255.0)
-    return img_gray_resized, input_tensor
+        return None, None, None
+    h, w = img.shape[:2]
+    
+    # Maintain aspect ratio
+    scale = max_size / max(h, w)
+    new_h, new_w = int(h * scale), int(w * scale)
+    
+    # Round to nearest multiple of 8 for SuperPoint
+    new_h = (new_h // 8) * 8
+    new_w = (new_w // 8) * 8
+    
+    img_resized = cv2.resize(img, (new_w, new_h))
+    img_gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
+    input_tensor = jnp.array(img_gray[None, ..., None] / 255.0)
+    return img_resized, input_tensor, (h, w)
 
 def get_top_k(sp_out, k=1024, threshold=0.005):
     scores = sp_out['scores'][0]
@@ -53,8 +63,8 @@ def run_analysis():
     
     img_dir = "data/input_frames"
     base_path = os.path.join(img_dir, f"frame_{base_frame_idx:04d}.png")
-    _, input0 = load_image(base_path)
-    print(f"Pre-extracting features for base frame: {base_path}")
+    img0_resized, input0, _ = load_image(base_path)
+    print(f"Pre-extracting features for base frame: {base_path} (Size: {img0_resized.shape[:2]})")
     sp0 = jit_sp(sp_vars, input0)
     kpts0, desc0, _ = get_top_k(sp0)
     
@@ -65,7 +75,7 @@ def run_analysis():
         target_idx = base_frame_idx + gap
         target_path = os.path.join(img_dir, f"frame_{target_idx:04d}.png")
         
-        _, input1 = load_image(target_path)
+        img1_resized, input1, _ = load_image(target_path)
         if input1 is None:
             print(f"Skipping gap {gap}, frame {target_path} not found.")
             continue
@@ -102,14 +112,11 @@ def run_analysis():
         idx0 = jnp.where(valid)[0]
         idx1 = m0[idx0]
         
-        h0, w0 = input0.shape[1:3]
-        h1, w1 = input1.shape[1:3]
+        h0, w0 = img0_resized.shape[:2]
+        h1, w1 = img1_resized.shape[:2]
         
-        # Load RGB for visualization if available
-        rgb0 = cv2.imread(base_path)
-        rgb0 = cv2.resize(cv2.cvtColor(rgb0, cv2.COLOR_BGR2RGB), (w0, h0))
-        rgb1 = cv2.imread(target_path)
-        rgb1 = cv2.resize(cv2.cvtColor(rgb1, cv2.COLOR_BGR2RGB), (w1, h1))
+        rgb0 = cv2.cvtColor(img0_resized, cv2.COLOR_BGR2RGB)
+        rgb1 = cv2.cvtColor(img1_resized, cv2.COLOR_BGR2RGB)
         
         combined_img = np.zeros((max(h0, h1), w0 + w1, 3), dtype=np.uint8)
         combined_img[:h0, :w0, :] = rgb0
@@ -123,8 +130,13 @@ def run_analysis():
         matched_kpts0 = kpts0[idx0]
         matched_kpts1 = kpts1[idx1]
         
-        for p0, p1 in zip(matched_kpts0, matched_kpts1):
-            plt.plot([p0[0], p1[0] + w0], [p0[1], p1[1]], 'c-', linewidth=0.5, alpha=0.5)
+        # Use a colormap for colorful connections
+        cmap = plt.get_cmap('hsv')
+        vis_colors = cmap(np.linspace(0, 1, len(matched_kpts0)))
+        np.random.shuffle(vis_colors)
+        
+        for i, (p0, p1) in enumerate(zip(matched_kpts0, matched_kpts1)):
+            plt.plot([p0[0], p1[0] + w0], [p0[1], p1[1]], color=vis_colors[i], linewidth=0.75, alpha=0.6)
             
         vis_path = f"output/matches_gap_{gap:03d}.png"
         plt.savefig(vis_path, bbox_inches='tight', pad_inches=0)

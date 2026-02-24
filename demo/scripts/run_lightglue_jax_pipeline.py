@@ -11,16 +11,25 @@ import matplotlib.pyplot as plt
 from lightglue_jax.models.superpoint import SuperPoint
 from lightglue_jax.models.lightglue import LightGlue
 
-def load_image(path, target_size=(1024, 1024)):
+def load_image(path, max_size=1024):
     img = cv2.imread(path)
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    h, w = img.shape[:2]
     
-    # Resize for inference
-    img_gray_resized = cv2.resize(img_gray, target_size)
-    input_tensor = jnp.array(img_gray_resized[None, ..., None] / 255.0)
+    # Maintain aspect ratio
+    scale = max_size / max(h, w)
+    new_h, new_w = int(h * scale), int(w * scale)
     
-    return img_rgb, input_tensor, img_gray_resized
+    # Round to nearest multiple of 8 for SuperPoint
+    new_h = (new_h // 8) * 8
+    new_w = (new_w // 8) * 8
+    
+    img_resized = cv2.resize(img, (new_w, new_h))
+    img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+    img_gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
+    
+    input_tensor = jnp.array(img_gray[None, ..., None] / 255.0)
+    
+    return img_rgb, input_tensor, img_gray, (h, w)
 
 def run_pipeline():
     # 1. Setup Models
@@ -49,11 +58,11 @@ def run_pipeline():
         img0_path = "demo/assets/sacre_coeur1.jpg"
         img1_path = "demo/assets/sacre_coeur2.jpg"
     
-    rgb0, input0, gray0 = load_image(img0_path)
-    rgb1, input1, gray1 = load_image(img1_path)
+    rgb0, input0, gray0, orig_shape0 = load_image(img0_path)
+    rgb1, input1, gray1, orig_shape1 = load_image(img1_path)
     
     # 4. Extract SuperPoint Features
-    print("Extracting SuperPoint features (JAX)...")
+    print(f"Extracting SuperPoint features (JAX) - Input sizes: {gray0.shape} and {gray1.shape}...")
     sp0 = jit_sp(sp_vars, input0)
     sp1 = jit_sp(sp_vars, input1)
     
@@ -135,13 +144,18 @@ def run_pipeline():
     plt.imshow(combined_img)
     plt.axis('off')
     
-    for p0, p1 in zip(matched_kpts0, matched_kpts1):
-        plt.plot([p0[0], p1[0] + w0], [p0[1], p1[1]], 'c-', linewidth=0.5)
-        plt.scatter([p0[0], p1[0] + w0], [p0[1], p1[1]], c='g', s=1)
+    # Use a colormap for colorful connections
+    cmap = plt.get_cmap('hsv')
+    colors = cmap(np.linspace(0, 1, len(matched_kpts0)))
+    np.random.shuffle(colors) # Shuffle to differentiate nearby points
+    
+    for i, (p0, p1) in enumerate(zip(matched_kpts0, matched_kpts1)):
+        plt.plot([p0[0], p1[0] + w0], [p0[1], p1[1]], color=colors[i], linewidth=0.75, alpha=0.6)
+        plt.scatter([p0[0], p1[0] + w0], [p0[1], p1[1]], color=colors[i], s=2)
         
     os.makedirs("output", exist_ok=True)
-    plt.savefig("output/lightglue_jax_matches.png")
-    print("Saved visualization to output/lightglue_jax_matches.png")
+    plt.savefig("output/lightglue_jax_matches.png", bbox_inches='tight', pad_inches=0)
+    print("Saved colorful visualization to output/lightglue_jax_matches.png")
 
 if __name__ == "__main__":
     run_pipeline()
