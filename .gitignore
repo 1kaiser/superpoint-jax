@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
+input_depthMaps.zip
+data/
+output/
 
 # C extensions
 *.so

@@ -41,8 +41,13 @@ def run_pipeline():
     jit_lg = jax.jit(lg_model.apply)
     
     # 3. Load Images
-    img0_path = "demo/assets/sacre_coeur1.jpg"
-    img1_path = "demo/assets/sacre_coeur2.jpg"
+    img0_path = "data/input_frames/frame_0000.png"
+    img1_path = "data/input_frames/frame_0001.png"
+    
+    if not os.path.exists(img0_path):
+        # Fallback to demo assets if data not found
+        img0_path = "demo/assets/sacre_coeur1.jpg"
+        img1_path = "demo/assets/sacre_coeur2.jpg"
     
     rgb0, input0, gray0 = load_image(img0_path)
     rgb1, input1, gray1 = load_image(img1_path)

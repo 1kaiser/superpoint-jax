@@ -118,9 +118,15 @@ python demo/scripts/test_superpoint_jax.py
 # Verify LightGlue matching parity and inference
 python demo/scripts/test_lightglue_jax.py
 
-# Run full JAX-based pipeline (SuperPoint + LightGlue)
+# Run full JAX-based pipeline (SuperPoint + LightGlue) on sample frames
 python demo/scripts/run_lightglue_jax_pipeline.py
 ```
+
+### JAX LightGlue Inference Demo (Notebook)
+We provide a standalone notebook `lightglue_jax_inference_demo.ipynb` that demonstrates:
+1. Environment setup and weight downloading.
+2. Inference on a sample dataset of sequential frames.
+3. Interactive visualization of the mutual matches.
 
 ### LightGlue Comparison Demo
 Run the modular scripts to verify JAX vs PyTorch:
