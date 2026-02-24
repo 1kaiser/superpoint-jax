@@ -29,9 +29,9 @@ For a one-click TPU/GPU demonstration, use our interactive notebook:
 ## 📊 Experimental Results
 
 ### Matching Quality (Sequential Dataset)
-Using the JAX-compiled pipeline on sequential video frames:
-- **Matches Found:** 799 high-confidence mutual matches.
-- **Average Confidence:** 0.9159.
+Using the JAX-compiled pipeline on sequential video frames (aspect-ratio preserved):
+- **Matches Found:** **880** high-confidence mutual matches.
+- **Average Confidence:** **0.9598**.
 - **Inference Time:** **~4.2 ms** (JAX JIT-compiled).
 
 ![Main Pipeline Result](demo/assets/results/main_pipeline_result.png)
@@ -41,13 +41,20 @@ Evaluation of matching robustness across increasing temporal gaps (Ref vs Ref+N)
 
 | Gap | Matches | Avg Conf | Inference Time | Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| **1** | 799 | 0.9159 | 4.17ms | Sequential tracking |
-| **50** | 446 | 0.7641 | 5.35ms | Significant motion |
-| **100** | 246 | 0.6675 | 4.70ms | Wide baseline |
-| **200** | 23 | 0.3444 | 5.78ms | Severe perspective shift |
+| **1** | 880 | 0.9598 | 4.24ms | Local tracking baseline |
+| **50** | 542 | 0.7832 | 4.5ms* | Significant motion |
+| **100** | 295 | 0.7103 | 4.8ms* | Robust wide-baseline |
+| **200** | 15 | 0.2722 | 4.37ms | Severe perspective limit |
+
+*\*Excluding initial JAX JIT compilation overhead.*
 
 #### Visual Robustness (Gap 50):
 ![Gap 50](demo/assets/results/matches_gap_050.png)
+*Figure: Stable matching at Gap 50 with 542 mutual matches.*
+
+#### Visual Robustness (Gap 100):
+![Gap 100](demo/assets/results/matches_gap_100.png)
+*Figure: Robust wide-baseline matching at Gap 100 with 295 mutual matches.*
 
 ## 🛠️ Usage & Testing
 
