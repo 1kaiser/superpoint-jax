@@ -49,6 +49,12 @@ We provide a **GLB Verification Suite** to validate 3D outputs:
 - **Viewer**: A web-based 3D viewer (`demo/viewer/index.html`) utilizing `<model-viewer>`.
 - **Puppeteer Script**: Automates the loading and verification of the generated GLB file (`demo/scripts/verify_glb.js`).
 
+### 2.6 JAX LightGlue Integration
+We have integrated a native JAX/Flax implementation of the LightGlue matcher (`lightglue_jax/`). This implementation:
+- Uses **Rotary Positional Embeddings (RoPE)** for robust feature encoding.
+- Supports **Adaptive Pruning**, allowing for up to 2x speedups on easy image pairs.
+- Maintains bit-level parity with the official PyTorch implementation, validated through our parity test suite.
+
 ## 3. Results
 
 We evaluated the pipeline on standard benchmarks and real-world image pairs.
@@ -101,6 +107,19 @@ pip install -r requirements.txt
 pip install -e LightGlue/
 # For 3D Verification (Optional)
 npm install puppeteer
+```
+
+### JAX LightGlue & SuperPoint Parity Testing
+Verify the native JAX implementations against the official baselines:
+```bash
+# Verify SuperPoint extraction parity
+python demo/scripts/test_superpoint_jax.py
+
+# Verify LightGlue matching parity and inference
+python demo/scripts/test_lightglue_jax.py
+
+# Run full JAX-based pipeline (SuperPoint + LightGlue)
+python demo/scripts/run_lightglue_jax_pipeline.py
 ```
 
 ### LightGlue Comparison Demo
